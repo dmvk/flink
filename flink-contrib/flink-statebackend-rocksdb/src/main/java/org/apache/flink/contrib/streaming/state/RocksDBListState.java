@@ -24,15 +24,15 @@ import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
 import org.apache.flink.runtime.state.internal.InternalListState;
-
+import org.apache.flink.shaded.guava18.com.google.common.collect.AbstractIterator;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -89,17 +89,35 @@ public class RocksDBListState<K, N, V>
 				return null;
 			}
 
-			ByteArrayInputStream bais = new ByteArrayInputStream(valueBytes);
-			DataInputViewStreamWrapper in = new DataInputViewStreamWrapper(bais);
+			final ByteArrayInputStream bais = new ByteArrayInputStream(valueBytes);
+			final DataInputViewStreamWrapper in = new DataInputViewStreamWrapper(bais);
 
-			List<V> result = new ArrayList<>();
-			while (in.available() > 0) {
-				result.add(valueSerializer.deserialize(in));
-				if (in.available() > 0) {
-					in.readByte();
+			return new Iterable<V>() {
+				@Override
+				public Iterator<V> iterator() {
+					return new AbstractIterator<V>() {
+
+						@Override
+						protected V computeNext() {
+							try {
+								if (in.available() > 0) {
+									final V res = valueSerializer.deserialize(in);
+									// skip separator if more data are available
+									if (in.available() > 0) {
+										in.readByte();
+									}
+									return res;
+								} else {
+									endOfData();
+									return null;
+								}
+							} catch (IOException e) {
+								throw new RuntimeException("Error reading data from RocksDB", e);
+							}
+						}
+					};
 				}
-			}
-			return result;
+			};
 		} catch (IOException | RocksDBException e) {
 			throw new RuntimeException("Error while retrieving data from RocksDB", e);
 		}
