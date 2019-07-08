@@ -44,6 +44,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -164,6 +165,7 @@ public class YarnFileStageTest extends TestLogger {
 		srcFiles.put("2", "Hello 2");
 		srcFiles.put("nested/3", "Hello nested/3");
 		srcFiles.put("nested/4/5", "Hello nested/4/5");
+		srcFiles.put("test.jar", "JAR Content");
 		for (Map.Entry<String, String> src : srcFiles.entrySet()) {
 			File file = new File(srcDir, src.getKey());
 			//noinspection ResultOfMethodCallIgnored
@@ -177,7 +179,7 @@ public class YarnFileStageTest extends TestLogger {
 		try {
 			List<Path> remotePaths = new ArrayList<>();
 			HashMap<String, LocalResource> localResources = new HashMap<>();
-			AbstractYarnClusterDescriptor.uploadAndRegisterFiles(
+			final List<String> classpath = AbstractYarnClusterDescriptor.uploadAndRegisterFiles(
 				Collections.singletonList(new File(srcPath.toUri().getPath())),
 				targetFileSystem,
 				targetDir,
@@ -185,6 +187,15 @@ public class YarnFileStageTest extends TestLogger {
 				remotePaths,
 				localResources,
 				new StringBuilder());
+
+			assertEquals(
+				Arrays.asList(
+					srcDir.getName(),
+					srcDir.getName() + "/nested",
+					srcDir.getName() + "/nested/4",
+					srcDir.getName() + "/test.jar")
+				, classpath);
+
 			assertEquals(srcFiles.size(), localResources.size());
 
 			Path workDir = ConverterUtils
