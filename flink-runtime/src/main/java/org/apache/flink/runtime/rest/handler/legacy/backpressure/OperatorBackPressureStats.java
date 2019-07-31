@@ -31,9 +31,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * back pressure ratio denotes the ratio of traces indicating back pressure
  * to the total number of sampled traces.
  */
-public class OperatorBackPressureStats implements Serializable {
-
-	private static final long serialVersionUID = 1L;
+public class OperatorBackPressureStats implements Serializable, Stats {
 
 	/** ID of the corresponding sample. */
 	private final int sampleId;

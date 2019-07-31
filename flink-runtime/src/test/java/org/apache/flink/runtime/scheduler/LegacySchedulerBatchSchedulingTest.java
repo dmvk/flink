@@ -46,7 +46,7 @@ import org.apache.flink.runtime.jobmaster.slotpool.SlotPoolImpl;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotPoolUtils;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.VoidBackPressureStatsTracker;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.VoidOperatorStatsTracker;
 import org.apache.flink.runtime.shuffle.NettyShuffleMaster;
 import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGateway;
 import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGatewayBuilder;
@@ -194,7 +194,8 @@ public class LegacySchedulerBatchSchedulingTest extends TestLogger {
 		final LegacyScheduler legacyScheduler = new LegacyScheduler(
 			LOG,
 			jobGraph,
-			VoidBackPressureStatsTracker.INSTANCE,
+			VoidOperatorStatsTracker.getInstance(),
+			VoidOperatorStatsTracker.getInstance(),
 			TestingUtils.defaultExecutor(),
 			new Configuration(),
 			scheduler,
