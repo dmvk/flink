@@ -24,12 +24,15 @@ import org.apache.flink.runtime.execution.librarycache.ContextClassLoaderLibrary
 import org.apache.flink.runtime.execution.librarycache.LibraryCacheManager;
 import org.apache.flink.runtime.executiongraph.restart.NoOrFixedIfCheckpointingEnabledRestartStrategyFactory;
 import org.apache.flink.runtime.executiongraph.restart.RestartStrategyFactory;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.BackPressureStatsTracker;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorBackPressureStats;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorFlameGraph;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorStatsTracker;
 import org.apache.flink.runtime.rest.handler.legacy.backpressure.StackTraceSampleCoordinator;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.VoidBackPressureStatsTracker;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.VoidOperatorStatsTracker;
 import org.apache.flink.runtime.testingUtils.TestingUtils;
 
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.Optional;
 
 import static org.mockito.Mockito.mock;
 
@@ -37,6 +40,7 @@ import static org.mockito.Mockito.mock;
  * Builder for the {@link JobManagerSharedServices}.
  */
 public class TestingJobManagerSharedServicesBuilder {
+
 
 	private ScheduledExecutorService scheduledExecutorService;
 
@@ -46,7 +50,9 @@ public class TestingJobManagerSharedServicesBuilder {
 
 	private StackTraceSampleCoordinator stackTraceSampleCoordinator;
 
-	private BackPressureStatsTracker backPressureStatsTracker;
+	private OperatorStatsTracker<OperatorBackPressureStats> backPressureStatsTracker;
+
+	private OperatorStatsTracker<OperatorFlameGraph> flameGraphStatsTracker;
 
 	private BlobWriter blobWriter;
 
@@ -55,7 +61,8 @@ public class TestingJobManagerSharedServicesBuilder {
 		libraryCacheManager = ContextClassLoaderLibraryCacheManager.INSTANCE;
 		restartStrategyFactory = new NoOrFixedIfCheckpointingEnabledRestartStrategyFactory();
 		stackTraceSampleCoordinator = mock(StackTraceSampleCoordinator.class);
-		backPressureStatsTracker = VoidBackPressureStatsTracker.INSTANCE;
+		backPressureStatsTracker = VoidOperatorStatsTracker.getInstance();
+		flameGraphStatsTracker = VoidOperatorStatsTracker.getInstance();
 		blobWriter = VoidBlobWriter.getInstance();
 	}
 
@@ -80,10 +87,14 @@ public class TestingJobManagerSharedServicesBuilder {
 		return this;
 	}
 
-	public TestingJobManagerSharedServicesBuilder setBackPressureStatsTracker(BackPressureStatsTracker backPressureStatsTracker) {
+	public TestingJobManagerSharedServicesBuilder setBackPressureStatsTracker(OperatorStatsTracker<OperatorBackPressureStats> backPressureStatsTracker) {
 		this.backPressureStatsTracker = backPressureStatsTracker;
 		return this;
+	}
 
+	public TestingJobManagerSharedServicesBuilder setFlameGraphStatsTracker(OperatorStatsTracker<OperatorFlameGraph> flameGraphStatsTracker) {
+		this.flameGraphStatsTracker = flameGraphStatsTracker;
+		return this;
 	}
 
 	public void setBlobWriter(BlobWriter blobWriter) {
@@ -97,6 +108,7 @@ public class TestingJobManagerSharedServicesBuilder {
 			restartStrategyFactory,
 			stackTraceSampleCoordinator,
 			backPressureStatsTracker,
+			flameGraphStatsTracker,
 			blobWriter);
 	}
 }

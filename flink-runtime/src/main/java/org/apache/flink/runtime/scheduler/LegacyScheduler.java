@@ -68,8 +68,9 @@ import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
 import org.apache.flink.runtime.query.KvStateLocation;
 import org.apache.flink.runtime.query.KvStateLocationRegistry;
 import org.apache.flink.runtime.query.UnknownKvStateLocation;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.BackPressureStatsTracker;
 import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorBackPressureStats;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorFlameGraph;
+import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorStatsTracker;
 import org.apache.flink.runtime.shuffle.ShuffleMaster;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
@@ -104,7 +105,9 @@ public class LegacyScheduler implements SchedulerNG {
 
 	private final ExecutionGraph executionGraph;
 
-	private final BackPressureStatsTracker backPressureStatsTracker;
+	private final OperatorStatsTracker<OperatorBackPressureStats> backPressureStatsTracker;
+
+	private final OperatorStatsTracker<OperatorFlameGraph> flameGraphStatsTracker;
 
 	private final Executor ioExecutor;
 
@@ -133,7 +136,8 @@ public class LegacyScheduler implements SchedulerNG {
 	public LegacyScheduler(
 			final Logger log,
 			final JobGraph jobGraph,
-			final BackPressureStatsTracker backPressureStatsTracker,
+			final OperatorStatsTracker<OperatorBackPressureStats> backPressureStatsTracker,
+			final OperatorStatsTracker<OperatorFlameGraph> flameGraphStatsTracker,
 			final Executor ioExecutor,
 			final Configuration jobMasterConfiguration,
 			final SlotProvider slotProvider,
@@ -151,6 +155,7 @@ public class LegacyScheduler implements SchedulerNG {
 		this.log = checkNotNull(log);
 		this.jobGraph = checkNotNull(jobGraph);
 		this.backPressureStatsTracker = checkNotNull(backPressureStatsTracker);
+		this.flameGraphStatsTracker = checkNotNull(flameGraphStatsTracker);
 		this.ioExecutor = checkNotNull(ioExecutor);
 		this.jobMasterConfiguration = checkNotNull(jobMasterConfiguration);
 		this.slotProvider = checkNotNull(slotProvider);
@@ -471,11 +476,18 @@ public class LegacyScheduler implements SchedulerNG {
 	public Optional<OperatorBackPressureStats> requestOperatorBackPressureStats(final JobVertexID jobVertexId) throws FlinkException {
 		final ExecutionJobVertex jobVertex = executionGraph.getJobVertex(jobVertexId);
 		if (jobVertex == null) {
-			throw new FlinkException("JobVertexID not found " +
-				jobVertexId);
+			throw new FlinkException("JobVertexID not found " + jobVertexId);
 		}
+		return backPressureStatsTracker.getOperatorStats(jobVertex);
+	}
 
-		return backPressureStatsTracker.getOperatorBackPressureStats(jobVertex);
+	@Override
+	public Optional<OperatorFlameGraph> requestOperatorFlameGraph(JobVertexID jobVertexId) throws FlinkException {
+		final ExecutionJobVertex jobVertex = executionGraph.getJobVertex(jobVertexId);
+		if (jobVertex == null) {
+			throw new FlinkException("JobVertexID not found " + jobVertexId);
+		}
+		return flameGraphStatsTracker.getOperatorStats(jobVertex);
 	}
 
 	@Override

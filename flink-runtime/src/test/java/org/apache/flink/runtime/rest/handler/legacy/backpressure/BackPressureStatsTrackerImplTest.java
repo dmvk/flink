@@ -87,11 +87,18 @@ public class BackPressureStatsTrackerImplTest extends TestLogger {
 		int numSamples = 100;
 		Time delayBetweenSamples = Time.milliseconds(100L);
 
-		BackPressureStatsTrackerImpl tracker = new BackPressureStatsTrackerImpl(
-				sampleCoordinator, 9999, numSamples, Integer.MAX_VALUE, delayBetweenSamples);
+		OperatorStatsTracker<OperatorBackPressureStats> tracker =
+			StackTraceOperatorTracker.newBuilder(BackPressureStatsTrackerImpl::createStatsFromSample)
+				.setCoordinator(sampleCoordinator)
+				.setCleanUpInterval(999)
+				.setNumSamples(numSamples)
+				.setStatsRefreshInterval(Integer.MAX_VALUE)
+				.setMaxStackTraceDepth(BackPressureStatsTrackerImpl.MAX_STACK_TRACE_DEPTH)
+				.setDelayBetweenSamples(delayBetweenSamples)
+				.build();
 
 		// getOperatorBackPressureStats triggers stack trace sampling
-		Assert.assertFalse(tracker.getOperatorBackPressureStats(jobVertex).isPresent());
+		Assert.assertFalse(tracker.getOperatorStats(jobVertex).isPresent());
 
 		Mockito.verify(sampleCoordinator, Mockito.times(1)).triggerStackTraceSample(
 				Matchers.eq(taskVertices),
@@ -100,7 +107,7 @@ public class BackPressureStatsTrackerImplTest extends TestLogger {
 				Matchers.eq(BackPressureStatsTrackerImpl.MAX_STACK_TRACE_DEPTH));
 
 		// Request back pressure stats again. This should not trigger another sample request
-		Assert.assertTrue(!tracker.getOperatorBackPressureStats(jobVertex).isPresent());
+		Assert.assertFalse(tracker.getOperatorStats(jobVertex).isPresent());
 
 		Mockito.verify(sampleCoordinator, Mockito.times(1)).triggerStackTraceSample(
 				Matchers.eq(taskVertices),
@@ -108,7 +115,7 @@ public class BackPressureStatsTrackerImplTest extends TestLogger {
 				Matchers.eq(delayBetweenSamples),
 				Matchers.eq(BackPressureStatsTrackerImpl.MAX_STACK_TRACE_DEPTH));
 
-		Assert.assertTrue(!tracker.getOperatorBackPressureStats(jobVertex).isPresent());
+		Assert.assertFalse(tracker.getOperatorStats(jobVertex).isPresent());
 
 		// Complete the future
 		Map<ExecutionAttemptID, List<StackTraceElement[]>> traces = new HashMap<>();
@@ -135,9 +142,9 @@ public class BackPressureStatsTrackerImplTest extends TestLogger {
 		// Succeed the promise
 		sampleFuture.complete(sample);
 
-		Assert.assertTrue(tracker.getOperatorBackPressureStats(jobVertex).isPresent());
+		Assert.assertTrue(tracker.getOperatorStats(jobVertex).isPresent());
 
-		OperatorBackPressureStats stats = tracker.getOperatorBackPressureStats(jobVertex).get();
+		OperatorBackPressureStats stats = tracker.getOperatorStats(jobVertex).get();
 
 		// Verify the stats
 		Assert.assertEquals(sampleId, stats.getSampleId());
