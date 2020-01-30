@@ -25,6 +25,8 @@ import org.apache.flink.util.IOUtils;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -33,6 +35,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * The reader (read view) of a BoundedBlockingSubpartition.
  */
 final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView {
+
+	private static final Logger LOG = LoggerFactory.getLogger(BoundedBlockingSubpartitionReader.class);
 
 	/** The result subpartition that we read. */
 	private final BoundedBlockingSubpartition parent;
@@ -55,6 +59,8 @@ final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView 
 	/** Flag whether this reader is released. Atomic, to avoid double release. */
 	private boolean isReleased;
 
+	private boolean isFirst = true;
+
 	/**
 	 * Convenience constructor that takes a single buffer.
 	 */
@@ -68,7 +74,6 @@ final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView 
 
 		checkNotNull(data);
 		this.dataReader = data.createReader(this);
-		this.nextBuffer = dataReader.nextBuffer();
 
 		checkArgument(numDataBuffers >= 0);
 		this.dataBufferBacklog = numDataBuffers;
@@ -76,9 +81,18 @@ final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView 
 		this.availabilityListener = checkNotNull(availabilityListener);
 	}
 
+	private void initializeIfNecessary() throws IOException {
+		if (isFirst && dataReader != null) {
+			isFirst = false;
+			nextBuffer = dataReader.nextBuffer();
+		}
+	}
+
 	@Nullable
 	@Override
 	public BufferAndBacklog getNextBuffer() throws IOException {
+		initializeIfNecessary();
+		final long startTime = System.currentTimeMillis();
 		final Buffer current = nextBuffer; // copy reference to stack
 
 		if (current == null) {
@@ -93,7 +107,13 @@ final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView 
 		assert dataReader != null;
 		nextBuffer = dataReader.nextBuffer();
 
-		return BufferAndBacklog.fromBufferAndLookahead(current, nextBuffer, dataBufferBacklog);
+		final BufferAndBacklog bufferAndBacklog = BufferAndBacklog.fromBufferAndLookahead(current,
+			nextBuffer, dataBufferBacklog);
+		final long duration = System.currentTimeMillis() - startTime;
+		if (duration >= 10) {
+			LOG.info("Block check - getNextBuffer: {} {}", duration, duration);
+		}
+		return bufferAndBacklog;
 	}
 
 	/**
@@ -151,12 +171,14 @@ final class BoundedBlockingSubpartitionReader implements ResultSubpartitionView 
 	}
 
 	@Override
-	public boolean nextBufferIsEvent() {
+	public boolean nextBufferIsEvent() throws IOException {
+		initializeIfNecessary();
 		return nextBuffer != null && !nextBuffer.isBuffer();
 	}
 
 	@Override
-	public boolean isAvailable() {
+	public boolean isAvailable() throws IOException {
+		initializeIfNecessary();
 		return nextBuffer != null;
 	}
 

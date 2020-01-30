@@ -44,6 +44,11 @@ import java.io.IOException;
  */
 interface BoundedData extends Closeable {
 
+	interface Factory {
+
+		BoundedData create() throws IOException;
+	}
+
 	/**
 	 * Writes this buffer to the bounded data.
 	 * This call fails if the writing phase was already finished via {@link #finishWrite()}.

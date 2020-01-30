@@ -35,7 +35,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Tests that read the BoundedBlockingSubpartition with multiple threads in parallel.
@@ -115,10 +114,7 @@ public abstract class BoundedDataTestBase {
 	public void testDeleteFileOnClose() throws Exception {
 		final Path path = createTempPath();
 		final BoundedData bd = createBoundedData(path);
-		assertTrue(Files.exists(path));
-
 		bd.close();
-
 		assertFalse(Files.exists(path));
 	}
 

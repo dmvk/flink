@@ -50,7 +50,7 @@ public interface NetworkSequenceViewReader {
 	 *
 	 * @return True if the reader is available.
 	 */
-	boolean isAvailable();
+	boolean isAvailable() throws IOException;
 
 	boolean isRegisteredAsAvailable();
 

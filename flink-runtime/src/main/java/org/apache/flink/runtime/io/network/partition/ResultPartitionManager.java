@@ -18,13 +18,18 @@
 
 package org.apache.flink.runtime.io.network.partition;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
+import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkState;
 
@@ -34,24 +39,64 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 public class ResultPartitionManager implements ResultPartitionProvider {
 
+	private static final int DEBUG_THRESHOLD_MS = 100;
+
 	private static final Logger LOG = LoggerFactory.getLogger(ResultPartitionManager.class);
 
-	private final Map<ResultPartitionID, ResultPartition> registeredPartitions = new HashMap<>(16);
+	interface LockedFn<T, R> {
 
-	private boolean isShutdown;
+		R apply(T value) throws IOException;
+	}
+
+	private static class LockedResultPartition {
+
+		private final ReentrantLock lock = new ReentrantLock();
+		private final ResultPartition resultPartition;
+
+		LockedResultPartition(ResultPartition resultPartition) {
+			this.resultPartition = resultPartition;
+		}
+
+		<T> T executeLocked(String action, LockedFn<ResultPartition, T> function) throws IOException {
+			final long startTime = System.currentTimeMillis();
+//			lock.lock();
+			final long lockDuration = System.currentTimeMillis() - startTime;
+			try {
+				final T result = function.apply(resultPartition);
+				final long totalDuration = System.currentTimeMillis() - startTime;
+				if (totalDuration >= DEBUG_THRESHOLD_MS) {
+					LOG.warn("Action [{}] for [{}] was waiting [{}] for lock and took [{}] to execute.",
+						action,
+						resultPartition.getPartitionId(),
+						lockDuration,
+						totalDuration);
+				}
+				return result;
+			} finally {
+//				lock.unlock();
+			}
+		}
+	}
+
+	private final ConcurrentMap<ResultPartitionID, LockedResultPartition> registeredPartitions =
+		new ConcurrentHashMap<>(16);
+
+	private AtomicBoolean isShutdown = new AtomicBoolean(false);
 
 	public void registerResultPartition(ResultPartition partition) {
-		synchronized (registeredPartitions) {
-			checkState(!isShutdown, "Result partition manager already shut down.");
-
-			ResultPartition previous = registeredPartitions.put(partition.getPartitionId(), partition);
-
-			if (previous != null) {
-				throw new IllegalStateException("Result partition already registered.");
-			}
-
-			LOG.debug("Registered {}.", partition);
+		checkState(!isShutdown.get(), "Result partition manager already shut down.");
+		final LockedResultPartition previous =
+			registeredPartitions.put(
+				partition.getPartitionId(),
+				new LockedResultPartition(partition));
+		if (previous != null) {
+			throw new IllegalStateException("Result partition already registered.");
 		}
+		LOG.info(
+			"Registered partition [{}] with [{}] subpartitions. Total number of registered partitions [{}].",
+			partition.getPartitionId(),
+			partition.getNumberOfSubpartitions(),
+			registeredPartitions.size());
 	}
 
 	@Override
@@ -59,46 +104,40 @@ public class ResultPartitionManager implements ResultPartitionProvider {
 			ResultPartitionID partitionId,
 			int subpartitionIndex,
 			BufferAvailabilityListener availabilityListener) throws IOException {
-
-		synchronized (registeredPartitions) {
-			final ResultPartition partition = registeredPartitions.get(partitionId);
-
-			if (partition == null) {
-				throw new PartitionNotFoundException(partitionId);
-			}
-
-			LOG.debug("Requesting subpartition {} of {}.", subpartitionIndex, partition);
-
-			return partition.createSubpartitionView(subpartitionIndex, availabilityListener);
+		final LockedResultPartition lockedPartition = registeredPartitions.get(partitionId);
+		if (lockedPartition == null) {
+			throw new PartitionNotFoundException(partitionId);
 		}
+		return lockedPartition.executeLocked("createSubpartitionView", (partition) -> {
+			LOG.debug("Requesting subpartition {} of {}.", subpartitionIndex, partition);
+			return partition.createSubpartitionView(subpartitionIndex, availabilityListener);
+		});
 	}
 
 	public void releasePartition(ResultPartitionID partitionId, Throwable cause) {
-		synchronized (registeredPartitions) {
-			ResultPartition resultPartition = registeredPartitions.remove(partitionId);
-			if (resultPartition != null) {
-				resultPartition.release(cause);
-				LOG.debug("Released partition {} produced by {}.",
-					partitionId.getPartitionId(), partitionId.getProducerId());
+		final LockedResultPartition lockedPartition = registeredPartitions.remove(partitionId);
+		if (lockedPartition != null) {
+			try {
+				lockedPartition.executeLocked("releasePartition", (partition) -> {
+					partition.release(cause);
+					LOG.debug("Released partition {} produced by {}.",
+						partitionId.getPartitionId(), partitionId.getProducerId());
+					return null;
+				});
+			} catch (IOException e) {
+				throw new IllegalStateException("This should never happen...", e);
 			}
 		}
 	}
 
 	public void shutdown() {
-		synchronized (registeredPartitions) {
-
+		if (!isShutdown.getAndSet(true)) {
 			LOG.debug("Releasing {} partitions because of shutdown.",
-					registeredPartitions.values().size());
-
-			for (ResultPartition partition : registeredPartitions.values()) {
-				partition.release();
+				registeredPartitions.values().size());
+			for (ResultPartitionID partitionId : getUnreleasedPartitions()) {
+				releasePartition(partitionId, null);
 			}
-
-			registeredPartitions.clear();
-
-			isShutdown = true;
-
-			LOG.debug("Successful shutdown.");
+			Preconditions.checkState(registeredPartitions.isEmpty());
 		}
 	}
 
@@ -108,22 +147,14 @@ public class ResultPartitionManager implements ResultPartitionProvider {
 
 	void onConsumedPartition(ResultPartition partition) {
 		LOG.debug("Received consume notification from {}.", partition);
-
-		synchronized (registeredPartitions) {
-			final ResultPartition previous = registeredPartitions.remove(partition.getPartitionId());
-			// Release the partition if it was successfully removed
-			if (partition == previous) {
-				partition.release();
-				ResultPartitionID partitionId = partition.getPartitionId();
-				LOG.debug("Released partition {} produced by {}.",
-					partitionId.getPartitionId(), partitionId.getProducerId());
-			}
-		}
+		releasePartition(partition.getPartitionId(), null);
 	}
 
 	public Collection<ResultPartitionID> getUnreleasedPartitions() {
-		synchronized (registeredPartitions) {
-			return registeredPartitions.keySet();
-		}
+		final long startTime = System.currentTimeMillis();
+		final Set<ResultPartitionID> keySet = new HashSet<>(registeredPartitions.keySet());
+		LOG.info("Block check - getUnreleasedPartitions: {}",
+			System.currentTimeMillis() - startTime);
+		return keySet;
 	}
 }

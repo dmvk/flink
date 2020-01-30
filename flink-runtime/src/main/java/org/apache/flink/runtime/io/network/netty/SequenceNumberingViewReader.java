@@ -92,7 +92,7 @@ class SequenceNumberingViewReader implements BufferAvailabilityListener, Network
 	}
 
 	@Override
-	public boolean isAvailable() {
+	public boolean isAvailable() throws IOException {
 		return subpartitionView.isAvailable();
 	}
 
