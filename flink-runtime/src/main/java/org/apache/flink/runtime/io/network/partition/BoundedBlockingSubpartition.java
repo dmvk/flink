@@ -261,10 +261,10 @@ final class BoundedBlockingSubpartition extends ResultSubpartition {
 	 * Data is eagerly spilled (written to disk) and readers directly read from the file.
 	 */
 	public static BoundedBlockingSubpartition createWithFileChannel(
-			int index, ResultPartition parent, File tempFile, int readBufferSize) throws IOException {
-
-		final FileChannelBoundedData bd = FileChannelBoundedData.create(tempFile.toPath(), readBufferSize);
-		return new BoundedBlockingSubpartition(index, parent, bd);
+			int index, ResultPartition parent, File tempFile, int readBufferSize) {
+		final BoundedData boundedData = new CachedBoundedData(tempFile.toPath(), () ->
+			FileChannelBoundedData.create(tempFile.toPath(), readBufferSize));
+		return new BoundedBlockingSubpartition(index, parent, boundedData);
 	}
 
 	/**
@@ -273,10 +273,10 @@ final class BoundedBlockingSubpartition extends ResultSubpartition {
 	 * OS swaps out the pages from the memory mapped file.
 	 */
 	public static BoundedBlockingSubpartition createWithMemoryMappedFile(
-			int index, ResultPartition parent, File tempFile) throws IOException {
-
-		final MemoryMappedBoundedData bd = MemoryMappedBoundedData.create(tempFile.toPath());
-		return new BoundedBlockingSubpartition(index, parent, bd);
+			int index, ResultPartition parent, File tempFile) {
+		final BoundedData boundedData = new CachedBoundedData(tempFile.toPath(), () ->
+			MemoryMappedBoundedData.create(tempFile.toPath()));
+		return new BoundedBlockingSubpartition(index, parent, boundedData);
 
 	}
 
@@ -288,9 +288,9 @@ final class BoundedBlockingSubpartition extends ResultSubpartition {
 	 * is that no I/O is necessary when pages from the memory mapped file are evicted.
 	 */
 	public static BoundedBlockingSubpartition createWithFileAndMemoryMappedReader(
-			int index, ResultPartition parent, File tempFile) throws IOException {
-
-		final FileChannelMemoryMappedBoundedData bd = FileChannelMemoryMappedBoundedData.create(tempFile.toPath());
-		return new BoundedBlockingSubpartition(index, parent, bd);
+			int index, ResultPartition parent, File tempFile) {
+		final BoundedData boundedData = new CachedBoundedData(tempFile.toPath(), () ->
+			FileChannelMemoryMappedBoundedData.create(tempFile.toPath()));
+		return new BoundedBlockingSubpartition(index, parent, boundedData);
 	}
 }
