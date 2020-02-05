@@ -143,6 +143,7 @@ public class CachedBoundedData implements BoundedData {
 				while ((cachedBuffer = cache.poll()) != null) {
 					cachedBuffer.recycleBuffer();
 					cacheSize -= cachedBuffer.getSize();
+					Preconditions.checkState(cachedBuffer.isRecycled());
 				}
 				Preconditions.checkState(cacheSize == 0);
 				finalState = "IN_MEMORY";
