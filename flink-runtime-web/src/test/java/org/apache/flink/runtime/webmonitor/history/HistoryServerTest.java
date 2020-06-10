@@ -35,6 +35,7 @@ import org.apache.flink.util.TestLogger;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonFactory;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonGenerator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.DeserializationFeature;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.commons.io.IOUtils;
@@ -61,6 +62,8 @@ import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.flink.runtime.webmonitor.history.HistoryServerArchiveFetcher.JobArchiveFetcherTask.JSON_FILE_ENDING;
+import static org.junit.Assert.assertTrue;
 /**
  * Tests for the HistoryServer.
  */
@@ -70,7 +73,8 @@ public class HistoryServerTest extends TestLogger {
 	private static final JsonFactory JACKSON_FACTORY = new JsonFactory()
 		.enable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
 		.disable(JsonGenerator.Feature.AUTO_CLOSE_JSON_CONTENT);
-	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+		.enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES);
 
 	@Rule
 	public final TemporaryFolder tmpFolder = new TemporaryFolder();
@@ -135,7 +139,7 @@ public class HistoryServerTest extends TestLogger {
 		try {
 			hs.start();
 			String baseUrl = "http://localhost:" + hs.getWebPort();
-			numExpectedArchivedJobs.await(10L, TimeUnit.SECONDS);
+			assertTrue(numExpectedArchivedJobs.await(10L, TimeUnit.SECONDS));
 
 			Assert.assertEquals(numJobs + numLegacyJobs, getJobsOverview(baseUrl).getJobs().size());
 		} finally {
@@ -183,7 +187,7 @@ public class HistoryServerTest extends TestLogger {
 		try {
 			hs.start();
 			String baseUrl = "http://localhost:" + hs.getWebPort();
-			numExpectedArchivedJobs.await(10L, TimeUnit.SECONDS);
+			assertTrue(numExpectedArchivedJobs.await(10L, TimeUnit.SECONDS));
 
 			Collection<JobDetails> jobs = getJobsOverview(baseUrl).getJobs();
 			Assert.assertEquals(numJobs, jobs.size());
@@ -194,10 +198,11 @@ public class HistoryServerTest extends TestLogger {
 				.map(JobID::toString)
 				.orElseThrow(() -> new IllegalStateException("Expected at least one existing job"));
 
+			assertHSFilesExistence(jobIdToDelete, true);
 			// delete one archive from jm
 			Files.deleteIfExists(jmDirectory.toPath().resolve(jobIdToDelete));
 
-			numExpectedExpiredJobs.await(10L, TimeUnit.SECONDS);
+			assertTrue(numExpectedExpiredJobs.await(10L, TimeUnit.SECONDS));
 
 			// check that archive is present in hs
 			Collection<JobDetails> jobsAfterDeletion = getJobsOverview(baseUrl).getJobs();
@@ -207,9 +212,17 @@ public class HistoryServerTest extends TestLogger {
 				.map(JobID::toString)
 				.filter(jobId -> jobId.equals(jobIdToDelete))
 				.count());
+			assertHSFilesExistence(jobIdToDelete, !cleanupExpiredJobs);
 		} finally {
 			hs.stop();
 		}
+	}
+
+	private void assertHSFilesExistence(String jobId, boolean fileExists){
+		Assert.assertEquals(fileExists, Files.exists(hsDirectory.toPath().resolve("jobs").resolve(jobId)));
+		Assert.assertEquals(fileExists, Files.isDirectory(hsDirectory.toPath().resolve("jobs").resolve(jobId)));
+		Assert.assertEquals(fileExists, Files.exists(hsDirectory.toPath().resolve("jobs").resolve(jobId + JSON_FILE_ENDING)));
+		Assert.assertEquals(fileExists, Files.exists(hsDirectory.toPath().resolve("overviews").resolve(jobId + JSON_FILE_ENDING)));
 	}
 
 	private void waitForArchivesCreation(int numJobs) throws InterruptedException {
