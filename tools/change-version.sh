@@ -17,8 +17,8 @@
 # limitations under the License.
 ################################################################################
 
-OLD="1.9.1-szn2"
-NEW="1.9.1-szn3"
+OLD="1.9.1-szn3"
+NEW="1.9.1-szn4"
 
 
 HERE=` basename "$PWD"`
