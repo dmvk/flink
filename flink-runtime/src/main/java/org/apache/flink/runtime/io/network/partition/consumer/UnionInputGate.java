@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.io.network.partition.consumer;
 
+import java.util.Comparator;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateReader;
 import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
@@ -89,6 +91,8 @@ public class UnionInputGate extends InputGate {
 	 */
 	private final int[] inputGateChannelIndexOffsets;
 
+	private final boolean prioritizeGates;
+
 	public UnionInputGate(IndexedInputGate... inputGates) {
 		inputGatesByGateIndex = Arrays.stream(inputGates).collect(Collectors.toMap(IndexedInputGate::getGateIndex, ig -> ig));
 		checkArgument(inputGates.length > 1, "Union input gate should union at least two input gates.");
@@ -113,6 +117,14 @@ public class UnionInputGate extends InputGate {
 			currentNumberOfInputChannels += inputGate.getNumberOfInputChannels();
 			Arrays.fill(inputChannelToInputGateIndex, previousNumberOfInputChannels, currentNumberOfInputChannels, inputGate.getGateIndex());
 		}
+
+		boolean prioritizeGates = false;
+		for (IndexedInputGate inputGate : inputGates) {
+			if (IndexedInputGate.Priority.HIGH.equals(inputGate.getPriority())) {
+				prioritizeGates = true;
+			}
+		}
+		this.prioritizeGates = prioritizeGates;
 
 		synchronized (inputGatesWithData) {
 			for (IndexedInputGate inputGate : inputGates) {
@@ -312,12 +324,17 @@ public class UnionInputGate extends InputGate {
 					return Optional.empty();
 				}
 			}
-
-			Iterator<IndexedInputGate> inputGateIterator = inputGatesWithData.iterator();
-			IndexedInputGate inputGate = inputGateIterator.next();
-			inputGateIterator.remove();
-
-			return Optional.of(inputGate);
+			if (prioritizeGates) {
+				final Optional<IndexedInputGate> min = inputGatesWithData.stream()
+					.max(Comparator.comparing(IndexedInputGate::getPriority));
+				min.ifPresent(inputGatesWithData::remove);
+				return min;
+			} else {
+				final Iterator<IndexedInputGate> inputGateIterator = inputGatesWithData.iterator();
+				final IndexedInputGate inputGate = inputGateIterator.next();
+				inputGateIterator.remove();
+				return Optional.of(inputGate);
+			}
 		}
 	}
 
@@ -326,5 +343,10 @@ public class UnionInputGate extends InputGate {
 		for (InputGate inputGate : inputGatesByGateIndex.values()) {
 			inputGate.registerBufferReceivedListener(listener);
 		}
+	}
+
+	@VisibleForTesting
+	boolean getPrioritizeGates() {
+		return prioritizeGates;
 	}
 }

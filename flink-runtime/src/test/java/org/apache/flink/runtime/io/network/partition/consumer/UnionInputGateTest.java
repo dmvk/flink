@@ -182,4 +182,93 @@ public class UnionInputGateTest extends InputGateTestBase {
 		// Check that updated input channel is visible via UnionInputGate
 		assertThat(unionInputGate.getChannel(1), Matchers.is(inputChannel2));
 	}
+
+	@Test
+	public void testPrioritizeGatesIsSet() {
+		final SingleInputGate inputGate1 = createInputGate(1);
+		inputGate1.setPriority(IndexedInputGate.Priority.HIGH);
+		TestInputChannel inputChannel1 = new TestInputChannel(inputGate1, 0);
+		inputGate1.setInputChannels(inputChannel1);
+		final SingleInputGate inputGate2 = createInputGate(1);
+		TestInputChannel inputChannel2 = new TestInputChannel(inputGate2, 0);
+		inputGate2.setInputChannels(inputChannel2);
+		final UnionInputGate unionInputGate = new UnionInputGate(inputGate1, inputGate2);
+		assertTrue(unionInputGate.getPrioritizeGates());
+	}
+
+	@Test
+	public void testPrioritizeGatesIsNotSet() {
+		final SingleInputGate inputGate1 = createInputGate(1);
+		TestInputChannel inputChannel1 = new TestInputChannel(inputGate1, 0);
+		inputGate1.setInputChannels(inputChannel1);
+		final SingleInputGate inputGate2 = createInputGate(1);
+		TestInputChannel inputChannel2 = new TestInputChannel(inputGate2, 0);
+		inputGate2.setInputChannels(inputChannel2);
+		final UnionInputGate unionInputGate = new UnionInputGate(inputGate1, inputGate2);
+		assertFalse(unionInputGate.getPrioritizeGates());
+	}
+
+	@Test
+	public void testPrioritizedGetNextLogic() throws Exception {
+		final SingleInputGate ig1 = createInputGate(3);
+		ig1.setPriority(IndexedInputGate.Priority.HIGH);
+		final SingleInputGate ig2 = createInputGate(5);
+		final UnionInputGate union = new UnionInputGate(ig1, ig2);
+
+		assertEquals(ig1.getNumberOfInputChannels() + ig2.getNumberOfInputChannels(), union.getNumberOfInputChannels());
+
+		final TestInputChannel[][] inputChannels = new TestInputChannel[][]{
+			TestInputChannel.createInputChannels(ig1, 3),
+			TestInputChannel.createInputChannels(ig2, 5)
+		};
+
+		inputChannels[0][0].readBuffer(); // 0 => 0
+		inputChannels[0][0].readEndOfPartitionEvent(); // 0 => 0
+		inputChannels[1][2].readBuffer(); // 2 => 5
+		inputChannels[1][2].readEndOfPartitionEvent(); // 2 => 5
+		inputChannels[1][0].readBuffer(); // 0 => 3
+		inputChannels[1][1].readBuffer(); // 1 => 4
+		inputChannels[0][1].readBuffer(); // 1 => 1
+		inputChannels[1][3].readBuffer(); // 3 => 6
+		inputChannels[0][1].readEndOfPartitionEvent(); // 1 => 1
+		inputChannels[1][3].readEndOfPartitionEvent(); // 3 => 6
+		inputChannels[0][2].readBuffer(); // 1 => 2
+		inputChannels[0][2].readEndOfPartitionEvent(); // 1 => 2
+		inputChannels[1][4].readBuffer(); // 4 => 7
+		inputChannels[1][4].readEndOfPartitionEvent(); // 4 => 7
+		inputChannels[1][1].readEndOfPartitionEvent(); // 0 => 3
+		inputChannels[1][0].readEndOfPartitionEvent(); // 0 => 3
+
+		ig1.notifyChannelNonEmpty(inputChannels[0][0]);
+		ig1.notifyChannelNonEmpty(inputChannels[0][1]);
+		ig1.notifyChannelNonEmpty(inputChannels[0][2]);
+
+		ig2.notifyChannelNonEmpty(inputChannels[1][0]);
+		ig2.notifyChannelNonEmpty(inputChannels[1][1]);
+		ig2.notifyChannelNonEmpty(inputChannels[1][2]);
+		ig2.notifyChannelNonEmpty(inputChannels[1][3]);
+		ig2.notifyChannelNonEmpty(inputChannels[1][4]);
+
+		// First serve everything from gate 1.
+		verifyBufferOrEvent(union, true, 0, true); // gate 1, channel 0
+		verifyBufferOrEvent(union, true, 1, true); // gate 1, channel 1
+		verifyBufferOrEvent(union, true, 2, true); // gate 1, channel 2
+		verifyBufferOrEvent(union, false, 0, true); // gate 1, channel 0
+		verifyBufferOrEvent(union, false, 1, true); // gate 1, channel 1
+		verifyBufferOrEvent(union, false, 2, true); // gate 1, channel 2
+		verifyBufferOrEvent(union, true, 3, true); // gate 2, channel 0
+		verifyBufferOrEvent(union, true, 4, true); // gate 2, channel 1
+		verifyBufferOrEvent(union, true, 5, true); // gate 2, channel 1
+		verifyBufferOrEvent(union, true, 6, true); // gate 2, channel 1
+		verifyBufferOrEvent(union, true, 7, true); // gate 2, channel 1
+		verifyBufferOrEvent(union, false, 3, true); // gate 2, channel 0
+		verifyBufferOrEvent(union, false, 4, true); // gate 2, channel 1
+		verifyBufferOrEvent(union, false, 5, true); // gate 2, channel 2
+		verifyBufferOrEvent(union, false, 6, true); // gate 2, channel 3
+		verifyBufferOrEvent(union, false, 7, false); // gate 2, channel 4
+
+		// Return null when the input gate has received all end-of-partition events
+		assertTrue(union.isFinished());
+		assertFalse(union.getNext().isPresent());
+	}
 }

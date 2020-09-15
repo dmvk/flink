@@ -171,6 +171,10 @@ public class StreamEdge implements Serializable {
 		return shuffleMode;
 	}
 
+	public String getSourceOperatorName() {
+		return sourceOperatorName;
+	}
+
 	public void setPartitioner(StreamPartitioner<?> partitioner) {
 		this.outputPartitioner = partitioner;
 	}

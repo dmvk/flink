@@ -18,14 +18,18 @@
 
 package org.apache.flink.streaming.runtime.tasks;
 
+import java.util.List;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
+import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.graph.StreamEdge;
+import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
@@ -99,8 +103,16 @@ public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamO
 	}
 
 	private CheckpointedInputGate createCheckpointedInputGate() {
-		IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
-
+		final IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
+		final StreamEdge[] inputEdges =
+			getConfiguration()
+				.getInPhysicalEdges(Thread.currentThread().getContextClassLoader())
+				.toArray(new StreamEdge[]{});
+		for (int i = 0; i < inputEdges.length; i++) {
+			if (inputEdges[i].getSourceOperatorName().startsWith(StreamGraph.ITERATION_SOURCE_NAME_PREFIX)) {
+				inputGates[i].setPriority(IndexedInputGate.Priority.HIGH);
+			}
+		}
 		return InputProcessorUtil.createCheckpointedInputGate(
 			this,
 			configuration,

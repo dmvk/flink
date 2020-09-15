@@ -17,12 +17,30 @@
 
 package org.apache.flink.runtime.io.network.partition.consumer;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * An {@link InputGate} with a specific index.
  */
 public abstract class IndexedInputGate extends InputGate {
+
+	public enum Priority {
+		NORMAL,
+		HIGH
+	}
+
+	private final AtomicReference<Priority> priority = new AtomicReference<>(Priority.NORMAL);
+
 	/**
 	 * Returns the index of this input gate. Only supported on
 	 */
 	public abstract int getGateIndex();
+
+	public Priority getPriority() {
+		return priority.get();
+	}
+
+	public void setPriority(Priority priority) {
+		this.priority.set(priority);
+	}
 }
