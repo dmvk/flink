@@ -457,7 +457,6 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 						new DefaultJobManagerJobMetricGroupFactory(jobManagerMetricGroup),
 						fatalErrorHandler,
 						initializationTimestamp);
-					runner.start();
 					return runner;
 				} catch (Exception e) {
 					throw new CompletionException(new JobInitializationException(jobGraph.getJobID(), "Could not instantiate JobManager.", e));

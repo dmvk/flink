@@ -91,6 +91,7 @@ public class JobManagerRunnerImpl implements LeaderContender, OnCompletionAction
 	private volatile boolean shutdown;
 
 	private volatile CompletableFuture<JobMasterGateway> leaderGatewayFuture;
+	private final CompletableFuture<JobMasterService> jobMasterServiceFuture;
 
 	// ------------------------------------------------------------------------
 
@@ -112,7 +113,8 @@ public class JobManagerRunnerImpl implements LeaderContender, OnCompletionAction
 
 		this.resultFuture = new CompletableFuture<>();
 		this.terminationFuture = new CompletableFuture<>();
-		this.leadershipOperation = CompletableFuture.completedFuture(null);
+		this.jobMasterServiceFuture = new CompletableFuture<>();
+		this.leadershipOperation = jobMasterServiceFuture.thenApply(ignore -> null);
 
 		this.jobGraph = checkNotNull(jobGraph);
 		this.classLoaderLease = checkNotNull(classLoaderLease);
@@ -137,8 +139,12 @@ public class JobManagerRunnerImpl implements LeaderContender, OnCompletionAction
 
 		this.leaderGatewayFuture = new CompletableFuture<>();
 
+		// We need to start leader election prior creating job master service, which tries to restore from savepoint.
+		start();
+
 		// now start the JobManager
 		this.jobMasterService = jobMasterFactory.createJobMasterService(jobGraph, this, userCodeLoader, initializationTimestamp);
+		this.jobMasterServiceFuture.complete(jobMasterService);
 	}
 
 	//----------------------------------------------------------------------------------------------
@@ -417,6 +423,9 @@ public class JobManagerRunnerImpl implements LeaderContender, OnCompletionAction
 
 	@Override
 	public String getDescription() {
+		if (jobMasterService == null) {
+			return "job-master-not-ready";
+		}
 		return jobMasterService.getAddress();
 	}
 

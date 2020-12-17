@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -125,6 +126,15 @@ public class KubernetesStateHandleStore<T extends Serializable> implements State
 
 		try {
 			final byte[] serializedStoreHandle = InstantiationUtil.serializeObject(storeHandle);
+			final long startTime = System.currentTimeMillis();
+			while ((System.currentTimeMillis() - startTime) < Duration.ofMinutes(5).toMillis()) {
+				if (kubeClient.getConfigMap(configMapName).isPresent()) {
+					LOG.info("===== Found config map {}", configMapName);
+					break;
+				}
+				LOG.info("===== Config map {} not found after {}ms", configMapName, System.currentTimeMillis() - startTime);
+				Thread.sleep(Duration.ofSeconds(10).toMillis());
+			}
 			success = kubeClient.checkAndUpdateConfigMap(
 				configMapName,
 				c -> {
