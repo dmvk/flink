@@ -46,6 +46,7 @@ import org.apache.flink.types.SerializableOptional;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.concurrent.FutureUtils;
+import org.apache.flink.util.function.QuadFunction;
 import org.apache.flink.util.function.TriConsumer;
 import org.apache.flink.util.function.TriFunction;
 
@@ -107,6 +108,14 @@ public class TestingTaskExecutorGateway implements TaskExecutorGateway {
     private final Supplier<CompletableFuture<TaskThreadInfoResponse>>
             requestThreadInfoSamplesSupplier;
 
+    private final QuadFunction<
+                    ExecutionAttemptID,
+                    Long,
+                    Long,
+                    CheckpointOptions,
+                    CompletableFuture<Acknowledge>>
+            triggerCheckpointFunction;
+
     TestingTaskExecutorGateway(
             String address,
             String hostname,
@@ -140,7 +149,14 @@ public class TestingTaskExecutorGateway implements TaskExecutorGateway {
                             CompletableFuture<Acknowledge>>
                     operatorEventHandler,
             Supplier<CompletableFuture<ThreadDumpInfo>> requestThreadDumpSupplier,
-            Supplier<CompletableFuture<TaskThreadInfoResponse>> requestThreadInfoSamplesSupplier) {
+            Supplier<CompletableFuture<TaskThreadInfoResponse>> requestThreadInfoSamplesSupplier,
+            QuadFunction<
+                            ExecutionAttemptID,
+                            Long,
+                            Long,
+                            CheckpointOptions,
+                            CompletableFuture<Acknowledge>>
+                    triggerCheckpointFunction) {
 
         this.address = Preconditions.checkNotNull(address);
         this.hostname = Preconditions.checkNotNull(hostname);
@@ -160,6 +176,7 @@ public class TestingTaskExecutorGateway implements TaskExecutorGateway {
         this.operatorEventHandler = operatorEventHandler;
         this.requestThreadDumpSupplier = requestThreadDumpSupplier;
         this.requestThreadInfoSamplesSupplier = requestThreadInfoSamplesSupplier;
+        this.triggerCheckpointFunction = triggerCheckpointFunction;
     }
 
     @Override
@@ -216,7 +233,8 @@ public class TestingTaskExecutorGateway implements TaskExecutorGateway {
             long checkpointID,
             long checkpointTimestamp,
             CheckpointOptions checkpointOptions) {
-        return CompletableFuture.completedFuture(Acknowledge.get());
+        return triggerCheckpointFunction.apply(
+                executionAttemptID, checkpointID, checkpointTimestamp, checkpointOptions);
     }
 
     @Override
