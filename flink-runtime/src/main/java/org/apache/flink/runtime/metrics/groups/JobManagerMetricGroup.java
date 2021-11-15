@@ -20,6 +20,7 @@ package org.apache.flink.runtime.metrics.groups;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.metrics.CharacterFilter;
+import org.apache.flink.runtime.dispatcher.JobCleanup;
 import org.apache.flink.runtime.metrics.MetricRegistry;
 import org.apache.flink.runtime.metrics.dump.QueryScopeInfo;
 import org.apache.flink.runtime.metrics.scope.ScopeFormat;
@@ -33,7 +34,8 @@ import java.util.Map;
  * <p>Contains extra logic for adding jobs with tasks, and removing jobs when they do not contain
  * tasks any more
  */
-public class JobManagerMetricGroup extends ComponentMetricGroup<JobManagerMetricGroup> {
+public class JobManagerMetricGroup extends ComponentMetricGroup<JobManagerMetricGroup>
+        implements JobCleanup {
 
     private final Map<JobID, JobManagerJobMetricGroup> jobs = new HashMap<>();
 
@@ -84,7 +86,8 @@ public class JobManagerMetricGroup extends ComponentMetricGroup<JobManagerMetric
         }
     }
 
-    public void removeJob(JobID jobId) {
+    @Override
+    public void cleanupJobData(JobID jobId) {
         if (jobId == null) {
             return;
         }
