@@ -200,7 +200,7 @@ public class DefaultJobGraphStoreTest extends TestLogger {
         final JobGraphStore jobGraphStore = createAndStartJobGraphStore(stateHandleStore);
 
         jobGraphStore.putJobGraph(testingJobGraph);
-        jobGraphStore.removeJobGraph(testingJobGraph.getJobID());
+        jobGraphStore.cleanupJobData(testingJobGraph.getJobID());
         final JobID actual = removeFuture.get(timeout, TimeUnit.MILLISECONDS);
         assertThat(actual, is(testingJobGraph.getJobID()));
     }
@@ -213,7 +213,7 @@ public class DefaultJobGraphStoreTest extends TestLogger {
                         .build();
 
         final JobGraphStore jobGraphStore = createAndStartJobGraphStore(stateHandleStore);
-        jobGraphStore.removeJobGraph(testingJobGraph.getJobID());
+        jobGraphStore.cleanupJobData(testingJobGraph.getJobID());
 
         try {
             removeFuture.get(timeout, TimeUnit.MILLISECONDS);

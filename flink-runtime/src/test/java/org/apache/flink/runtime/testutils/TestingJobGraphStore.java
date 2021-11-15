@@ -110,7 +110,7 @@ public class TestingJobGraphStore implements JobGraphStore {
     }
 
     @Override
-    public synchronized void removeJobGraph(JobID jobId) throws Exception {
+    public synchronized void cleanupJobData(JobID jobId) throws Exception {
         verifyIsStarted();
         removeJobGraphConsumer.accept(jobId);
         storedJobs.remove(jobId);

@@ -19,19 +19,17 @@
 package org.apache.flink.runtime.jobmanager;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.dispatcher.JobCleanup;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 
 /** Allows to store and remove job graphs. */
-public interface JobGraphWriter {
+public interface JobGraphWriter extends JobCleanup {
     /**
      * Adds the {@link JobGraph} instance.
      *
      * <p>If a job graph with the same {@link JobID} exists, it is replaced.
      */
     void putJobGraph(JobGraph jobGraph) throws Exception;
-
-    /** Removes the {@link JobGraph} with the given {@link JobID} if it exists. */
-    void removeJobGraph(JobID jobId) throws Exception;
 
     /**
      * Releases the locks on the specified {@link JobGraph}.
@@ -43,4 +41,7 @@ public interface JobGraphWriter {
      * @throws Exception if the locks cannot be released
      */
     void releaseJobGraph(JobID jobId) throws Exception;
+
+    @Override
+    default void cleanupJobData(JobID jobId) throws Exception {}
 }

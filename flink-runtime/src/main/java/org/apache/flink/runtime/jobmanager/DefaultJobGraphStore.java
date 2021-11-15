@@ -238,7 +238,7 @@ public class DefaultJobGraphStore<R extends ResourceVersion<R>>
     }
 
     @Override
-    public void removeJobGraph(JobID jobId) throws Exception {
+    public void cleanupJobData(JobID jobId) throws Exception {
         checkNotNull(jobId, "Job ID");
         String name = jobGraphStoreUtil.jobIDToName(jobId);
 
