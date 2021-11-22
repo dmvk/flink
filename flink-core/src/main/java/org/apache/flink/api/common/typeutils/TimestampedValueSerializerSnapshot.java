@@ -16,27 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.common.typeutils.base;
+package org.apache.flink.api.common.typeutils;
 
-import org.apache.flink.api.common.typeutils.CompositeTypeSerializerSnapshot;
-import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.state.TimestampedValue;
+import org.apache.flink.api.common.typeutils.base.TimestampedValueSerializer;
 
-import java.util.List;
-
-/** Snapshot class for the {@link ListSerializer}. */
-public class ListSerializerSnapshot<T>
-        extends CompositeTypeSerializerSnapshot<List<T>, ListSerializer<T>> {
+/** Snapshot class for the {@link TimestampedValueSerializer}. */
+public class TimestampedValueSerializerSnapshot<T>
+        extends CompositeTypeSerializerSnapshot<
+                TimestampedValue<T>, TimestampedValueSerializer<T>> {
 
     private static final int CURRENT_VERSION = 1;
 
     /** Constructor for read instantiation. */
-    public ListSerializerSnapshot() {
-        super(ListSerializer.class);
+    public TimestampedValueSerializerSnapshot() {
+        super(TimestampedValueSerializer.class);
     }
 
     /** Constructor to create the snapshot for writing. */
-    public ListSerializerSnapshot(ListSerializer<T> listSerializer) {
-        super(listSerializer);
+    public TimestampedValueSerializerSnapshot(TimestampedValueSerializer<T> serializer) {
+        super(serializer);
     }
 
     @Override
@@ -45,15 +44,16 @@ public class ListSerializerSnapshot<T>
     }
 
     @Override
-    protected ListSerializer<T> createOuterSerializerWithNestedSerializers(
+    protected TimestampedValueSerializer<T> createOuterSerializerWithNestedSerializers(
             TypeSerializer<?>[] nestedSerializers) {
         @SuppressWarnings("unchecked")
-        TypeSerializer<T> elementSerializer = (TypeSerializer<T>) nestedSerializers[0];
-        return new ListSerializer<>(elementSerializer);
+        final TypeSerializer<T> elementSerializer = (TypeSerializer<T>) nestedSerializers[0];
+        return new TimestampedValueSerializer<>(elementSerializer);
     }
 
     @Override
-    protected TypeSerializer<?>[] getNestedSerializers(ListSerializer<T> outerSerializer) {
+    protected TypeSerializer<?>[] getNestedSerializers(
+            TimestampedValueSerializer<T> outerSerializer) {
         return new TypeSerializer<?>[] {outerSerializer.getElementSerializer()};
     }
 }

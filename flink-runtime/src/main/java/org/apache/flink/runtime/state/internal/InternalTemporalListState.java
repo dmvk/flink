@@ -18,12 +18,13 @@
 
 package org.apache.flink.runtime.state.internal;
 
-import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TimestampedValue;
 
 import java.util.List;
 
 /**
- * The peer to the {@link ListState} in the internal state type hierarchy.
+ * The peer to the {@link TemporalListState} in the internal state type hierarchy.
  *
  * <p>See {@link InternalKvState} for a description of the internal state hierarchy.
  *
@@ -31,7 +32,11 @@ import java.util.List;
  * @param <N> The type of the namespace
  * @param <T> The type of elements in the list
  */
-public interface InternalListState<K, N, T>
-        extends InternalMergingState<K, N, T, List<T>, Iterable<T>>, ListState<T> {
-
-}
+public interface InternalTemporalListState<K, N, T>
+        extends InternalMergingState<
+                        K,
+                        N,
+                        TimestampedValue<T>,
+                        List<TimestampedValue<T>>,
+                        Iterable<TimestampedValue<T>>>,
+                TemporalListState<T> {}

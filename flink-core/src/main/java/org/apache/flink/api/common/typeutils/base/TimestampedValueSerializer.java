@@ -19,13 +19,14 @@
 package org.apache.flink.api.common.typeutils.base;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.common.state.TimestampedValue;
+import org.apache.flink.api.common.typeutils.TimestampedValueSerializerSnapshot;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -40,9 +41,9 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * @param <T> The type of element in the list.
  */
 @Internal
-public final class ListSerializer<T> extends TypeSerializer<List<T>> {
+public final class TimestampedValueSerializer<T> extends TypeSerializer<TimestampedValue<T>> {
 
-    private static final long serialVersionUID = 1119562170939152304L;
+    private static final long serialVersionUID = 1;
 
     /** The serializer for the elements of the list. */
     private final TypeSerializer<T> elementSerializer;
@@ -52,7 +53,7 @@ public final class ListSerializer<T> extends TypeSerializer<List<T>> {
      *
      * @param elementSerializer The serializer for the elements of the list
      */
-    public ListSerializer(TypeSerializer<T> elementSerializer) {
+    public TimestampedValueSerializer(TypeSerializer<T> elementSerializer) {
         this.elementSerializer = checkNotNull(elementSerializer);
     }
 
@@ -75,38 +76,37 @@ public final class ListSerializer<T> extends TypeSerializer<List<T>> {
 
     @Override
     public boolean isImmutableType() {
-        return false;
+        return elementSerializer.isImmutableType();
     }
 
     @Override
-    public TypeSerializer<List<T>> duplicate() {
+    public TypeSerializer<TimestampedValue<T>> duplicate() {
         TypeSerializer<T> duplicateElement = elementSerializer.duplicate();
         return duplicateElement == elementSerializer
                 ? this
-                : new ListSerializer<>(duplicateElement);
+                : new TimestampedValueSerializer<>(duplicateElement);
     }
 
     @Override
-    public List<T> createInstance() {
-        return new ArrayList<>(0);
+    public TimestampedValue<T> createInstance() {
+        return new TimestampedValue<>(elementSerializer.createInstance(), Long.MAX_VALUE);
     }
 
     @Override
-    public List<T> copy(List<T> from) {
-        List<T> newList = new ArrayList<>(from.size());
-
-        // We iterate here rather than accessing by index, because we cannot be sure that
-        // the given list supports RandomAccess.
-        // The Iterator should be stack allocated on new JVMs (due to escape analysis)
-        for (T element : from) {
-            newList.add(elementSerializer.copy(element));
+    public TimestampedValue<T> copy(TimestampedValue<T> from) {
+        if (isImmutableType()) {
+            return from;
         }
-        return newList;
+        return new TimestampedValue<>(elementSerializer.copy(from.getValue()), from.getTimestamp());
     }
 
     @Override
-    public List<T> copy(List<T> from, List<T> reuse) {
-        return copy(from);
+    public TimestampedValue<T> copy(TimestampedValue<T> from, TimestampedValue<T> reuse) {
+        if (isImmutableType()) {
+            return from;
+        }
+        return new TimestampedValue<>(
+                elementSerializer.copy(from.getValue(), reuse.getValue()), from.getTimestamp());
     }
 
     @Override
@@ -115,43 +115,30 @@ public final class ListSerializer<T> extends TypeSerializer<List<T>> {
     }
 
     @Override
-    public void serialize(List<T> list, DataOutputView target) throws IOException {
-        final int size = list.size();
-        target.writeInt(size);
-
-        // We iterate here rather than accessing by index, because we cannot be sure that
-        // the given list supports RandomAccess.
-        // The Iterator should be stack allocated on new JVMs (due to escape analysis)
-        for (T element : list) {
-            elementSerializer.serialize(element, target);
-        }
+    public void serialize(TimestampedValue<T> timestampedValue, DataOutputView target)
+            throws IOException {
+        elementSerializer.serialize(timestampedValue.getValue(), target);
+        target.writeLong(timestampedValue.getTimestamp());
     }
 
     @Override
-    public List<T> deserialize(DataInputView source) throws IOException {
-        final int size = source.readInt();
-        // create new list with (size + 1) capacity to prevent expensive growth when a single
-        // element is added
-        final List<T> list = new ArrayList<>(size + 1);
-        for (int i = 0; i < size; i++) {
-            list.add(elementSerializer.deserialize(source));
-        }
-        return list;
+    public TimestampedValue<T> deserialize(DataInputView source) throws IOException {
+        final T value = elementSerializer.deserialize(source);
+        final long timestamp = source.readLong();
+        return new TimestampedValue<>(value, timestamp);
     }
 
     @Override
-    public List<T> deserialize(List<T> reuse, DataInputView source) throws IOException {
+    public TimestampedValue<T> deserialize(TimestampedValue<T> reuse, DataInputView source)
+            throws IOException {
         return deserialize(source);
     }
 
     @Override
     public void copy(DataInputView source, DataOutputView target) throws IOException {
-        // copy number of elements
-        final int num = source.readInt();
-        target.writeInt(num);
-        for (int i = 0; i < num; i++) {
-            elementSerializer.copy(source, target);
-        }
+        elementSerializer.copy(source, target);
+        final long timestamp = source.readLong();
+        target.writeLong(timestamp);
     }
 
     // --------------------------------------------------------------------
@@ -161,7 +148,8 @@ public final class ListSerializer<T> extends TypeSerializer<List<T>> {
         return obj == this
                 || (obj != null
                         && obj.getClass() == getClass()
-                        && elementSerializer.equals(((ListSerializer<?>) obj).elementSerializer));
+                        && elementSerializer.equals(
+                                ((TimestampedValueSerializer<?>) obj).elementSerializer));
     }
 
     @Override
@@ -174,7 +162,7 @@ public final class ListSerializer<T> extends TypeSerializer<List<T>> {
     // --------------------------------------------------------------------------------------------
 
     @Override
-    public TypeSerializerSnapshot<List<T>> snapshotConfiguration() {
-        return new ListSerializerSnapshot<>(this);
+    public TypeSerializerSnapshot<TimestampedValue<T>> snapshotConfiguration() {
+        return new TimestampedValueSerializerSnapshot<>(this);
     }
 }

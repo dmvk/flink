@@ -31,6 +31,9 @@ import org.apache.flink.api.common.state.ReducingState;
 import org.apache.flink.api.common.state.ReducingStateDescriptor;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.state.StateTtlConfig;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TemporalListStateDescriptor;
+import org.apache.flink.api.common.state.TimestampedValue;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
@@ -82,6 +85,7 @@ import org.apache.flink.util.StateMigrationException;
 import org.apache.flink.util.TestLogger;
 
 import org.apache.flink.shaded.guava30.com.google.common.base.Joiner;
+import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
@@ -124,7 +128,9 @@ import static java.util.Arrays.asList;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.hamcrest.CoreMatchers.anyOf;
 import static org.hamcrest.CoreMatchers.isA;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.both;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -135,7 +141,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
@@ -3826,12 +3831,12 @@ public abstract class StateBackendTestBase<B extends AbstractStateBackend> exten
     }
 
     /**
-     * This test verifies that state is correctly assigned to key groups and that restore restores
-     * the relevant key groups in the backend.
+     * This test verifies that state is correctly assigned to key groups and that {@code restore}
+     * restores the relevant key groups in the backend.
      *
      * <p>We have 128 key groups. Initially, two backends with different states are responsible for
-     * all the key groups equally. Different backends for the same operator may contains different
-     * states if we create the state in runtime (such as {@link DeltaTrigger#onElement} Then we
+     * all the key groups equally. Different backends for the same operator may contain different
+     * states if we create the state in runtime (such as {@link DeltaTrigger#onElement}). Then we
      * snapshot, split up the state and restore into 4 backends where each is responsible for 32 key
      * groups. Then we make sure that the state is only available in the correct backend.
      */
@@ -3841,12 +3846,12 @@ public abstract class StateBackendTestBase<B extends AbstractStateBackend> exten
     }
 
     /**
-     * This test verifies that state is correctly assigned to key groups and that restore restores
-     * the relevant key groups in the backend.
+     * This test verifies that state is correctly assigned to key groups and that {@code restore}
+     * restores the relevant key groups in the backend.
      *
      * <p>We have 128 key groups. Initially, two backends with different states are responsible for
-     * all the key groups equally. Different backends for the same operator may contains different
-     * states if we create the state in runtime (such as {@link DeltaTrigger#onElement} Then we
+     * all the key groups equally. Different backends for the same operator may contain different
+     * states if we create the state in runtime (such as {@link DeltaTrigger#onElement}). Then we
      * snapshot, split up the state and restore into 2 backends where each is responsible for 64 key
      * groups. Then we make sure that the state is only available in the correct backend.
      */
@@ -5114,13 +5119,15 @@ public abstract class StateBackendTestBase<B extends AbstractStateBackend> exten
                 createKeyedBackend(IntSerializer.INSTANCE, env);
         try {
             long checkpointID = 0;
-            List<Future> futureList = new ArrayList();
+            List<Future<SnapshotResult<KeyedStateHandle>>> futureList = new ArrayList<>();
             for (int i = 0; i < 10; ++i) {
                 ValueStateDescriptor<Integer> kvId =
                         new ValueStateDescriptor<>("id" + i, IntSerializer.INSTANCE);
-                ValueState<Integer> state =
+                final ValueState<Integer> state =
                         backend.getOrCreateKeyedState(VoidNamespaceSerializer.INSTANCE, kvId);
-                ((InternalValueState) state).setCurrentNamespace(VoidNamespace.INSTANCE);
+                final InternalValueState<Integer, VoidNamespace, Integer> internalState =
+                        (InternalValueState<Integer, VoidNamespace, Integer>) state;
+                internalState.setCurrentNamespace(VoidNamespace.INSTANCE);
                 backend.setCurrentKey(i);
                 state.update(i);
 
@@ -5134,7 +5141,7 @@ public abstract class StateBackendTestBase<B extends AbstractStateBackend> exten
                                         CheckpointOptions.forCheckpointWithDefaultLocation())));
             }
 
-            for (Future future : futureList) {
+            for (Future<?> future : futureList) {
                 future.get(20, TimeUnit.SECONDS);
             }
         } catch (Exception e) {
@@ -5143,6 +5150,58 @@ public abstract class StateBackendTestBase<B extends AbstractStateBackend> exten
             IOUtils.closeQuietly(backend);
             backend.dispose();
             executorService.shutdown();
+        }
+    }
+
+    @Test
+    public void testTemporalListState() throws Exception {
+        final TemporalListStateDescriptor<String> descriptor =
+                new TemporalListStateDescriptor<String>("id", String.class);
+        final CheckpointableKeyedStateBackend<Integer> backend =
+                createKeyedBackend(IntSerializer.INSTANCE);
+        try {
+            final TemporalListState<String> state =
+                    backend.getPartitionedState(
+                            VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, descriptor);
+            backend.setCurrentKey(1);
+            assertNull(state.get());
+            state.add(new TimestampedValue<>("Second", 2L));
+            state.add(new TimestampedValue<>("First", 1L));
+            state.add(new TimestampedValue<>("Third", 3L));
+            assertThat(
+                    Iterables.transform(state.get(), TimestampedValue::getValue),
+                    contains("First", "Second", "Third"));
+            assertThat(
+                    Iterables.transform(state.readRange(2L, 2L), TimestampedValue::getValue),
+                    contains("Second"));
+        } finally {
+            IOUtils.closeQuietly(backend);
+            backend.dispose();
+        }
+    }
+
+    @Test
+    public void testTemporalListStateMultipleValuesForTheSameTimestamp() throws Exception {
+        final TemporalListStateDescriptor<String> descriptor =
+                new TemporalListStateDescriptor<String>("id", String.class);
+        final CheckpointableKeyedStateBackend<Integer> backend =
+                createKeyedBackend(IntSerializer.INSTANCE);
+        try {
+            final TemporalListState<String> state =
+                    backend.getPartitionedState(
+                            VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, descriptor);
+            backend.setCurrentKey(1);
+            assertNull(state.get());
+            state.add(new TimestampedValue<>("First", 1L));
+            state.add(new TimestampedValue<>("First", 1L));
+            state.add(new TimestampedValue<>("First", 1L));
+            state.add(new TimestampedValue<>("Second", 2L));
+            assertThat(
+                    Iterables.transform(state.get(), TimestampedValue::getValue),
+                    contains("First", "First", "First", "Second"));
+        } finally {
+            IOUtils.closeQuietly(backend);
+            backend.dispose();
         }
     }
 

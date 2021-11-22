@@ -32,29 +32,4 @@ import java.util.List;
  * @param <T> The type of elements in the list
  */
 public interface InternalListState<K, N, T>
-        extends InternalMergingState<K, N, T, List<T>, Iterable<T>>, ListState<T> {
-
-    /**
-     * Updates the operator state accessible by {@link #get()} by updating existing values to to the
-     * given list of values. The next time {@link #get()} is called (for the same state partition)
-     * the returned state will represent the updated list.
-     *
-     * <p>If `null` or an empty list is passed in, the state value will be null
-     *
-     * @param values The new values for the state.
-     * @throws Exception The method may forward exception thrown internally (by I/O or functions).
-     */
-    void update(List<T> values) throws Exception;
-
-    /**
-     * Updates the operator state accessible by {@link #get()} by adding the given values to
-     * existing list of values. The next time {@link #get()} is called (for the same state
-     * partition) the returned state will represent the updated list.
-     *
-     * <p>If `null` or an empty list is passed in, the state value remains unchanged
-     *
-     * @param values The new values to be added to the state.
-     * @throws Exception The method may forward exception thrown internally (by I/O or functions).
-     */
-    void addAll(List<T> values) throws Exception;
-}
+        extends InternalMergingState<K, N, T, List<T>, Iterable<T>>, ListState<T> {}

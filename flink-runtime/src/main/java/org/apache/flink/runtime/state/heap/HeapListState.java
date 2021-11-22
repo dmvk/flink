@@ -51,7 +51,7 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
      * @param namespaceSerializer The serializer for the namespace.
      * @param defaultValue The default value for the state.
      */
-    private HeapListState(
+    protected HeapListState(
             StateTable<K, N, List<V>> stateTable,
             TypeSerializer<K> keySerializer,
             TypeSerializer<List<V>> valueSerializer,

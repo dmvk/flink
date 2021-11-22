@@ -30,7 +30,7 @@ import java.util.List;
  * A {@link StateDescriptor} for {@link ListState}. This can be used to create state where the type
  * is a list that can be appended and iterated over.
  *
- * <p>Using {@code ListState} is typically more efficient than manually maintaining a list in a
+ * <p>Using {@link ListState} is typically more efficient than manually maintaining a list in a
  * {@link ValueState}, because the backing implementation can support efficient appends, rather than
  * replacing the full list on write.
  *
@@ -87,7 +87,6 @@ public class ListStateDescriptor<T> extends StateDescriptor<ListState<T>, List<T
         if (!(rawSerializer instanceof ListSerializer)) {
             throw new IllegalStateException();
         }
-
         return ((ListSerializer<T>) rawSerializer).getElementSerializer();
     }
 

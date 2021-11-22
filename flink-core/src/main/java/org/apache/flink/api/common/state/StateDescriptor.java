@@ -74,7 +74,8 @@ public abstract class StateDescriptor<S extends State, T> implements Serializabl
         REDUCING,
         FOLDING,
         AGGREGATING,
-        MAP
+        MAP,
+        TEMPORAL_LIST
     }
 
     private static final long serialVersionUID = 1L;

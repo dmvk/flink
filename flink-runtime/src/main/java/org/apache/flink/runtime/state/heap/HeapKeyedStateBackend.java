@@ -90,7 +90,10 @@ public class HeapKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
                                     (StateFactory) HeapAggregatingState::create),
                             Tuple2.of(
                                     StateDescriptor.Type.REDUCING,
-                                    (StateFactory) HeapReducingState::create))
+                                    (StateFactory) HeapReducingState::create),
+                            Tuple2.of(
+                                    StateDescriptor.Type.TEMPORAL_LIST,
+                                    (StateFactory) HeapTemporalListState::create))
                     .collect(Collectors.toMap(t -> t.f0, t -> t.f1));
 
     /** Map of registered Key/Value states. */

@@ -18,6 +18,7 @@
 
 package org.apache.flink.api.common.functions;
 
+import org.apache.flink.annotation.Experimental;
 import org.apache.flink.annotation.Public;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
@@ -37,6 +38,8 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReducingState;
 import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TemporalListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.metrics.groups.OperatorMetricGroup;
@@ -325,6 +328,9 @@ public interface RuntimeContext {
      */
     @PublicEvolving
     <T> ListState<T> getListState(ListStateDescriptor<T> stateProperties);
+
+    @Experimental
+    <T> TemporalListState<T> getTemporalListState(TemporalListStateDescriptor<T> stateProperties);
 
     /**
      * Gets a handle to the system's key/value reducing state. This state is similar to the state

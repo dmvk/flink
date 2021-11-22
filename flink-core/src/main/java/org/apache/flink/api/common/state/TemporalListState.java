@@ -18,9 +18,7 @@
 
 package org.apache.flink.api.common.state;
 
-import org.apache.flink.annotation.PublicEvolving;
-
-import java.util.List;
+import org.apache.flink.annotation.Experimental;
 
 /**
  * {@link State} interface for partitioned list state in Operations. The state is accessed and
@@ -35,35 +33,29 @@ import java.util.List;
  * consistently together.
  *
  * <p>When it is an operator list state, the list is a collection of state items that are
- * independent from each other and eligible for redistribution across operator instances in case of
+ * independent of each other and eligible for redistribution across operator instances in case of
  * changed operator parallelism.
  *
  * @param <T> Type of values that this list state keeps.
  */
-@PublicEvolving
-public interface ListState<T> extends MergingState<T, Iterable<T>> {
+@Experimental
+public interface TemporalListState<T>
+        extends MergingState<TimestampedValue<T>, Iterable<TimestampedValue<T>>> {
 
     /**
-     * Updates the operator state accessible by {@link #get()} by updating existing values to to the
-     * given list of values. The next time {@link #get()} is called (for the same state partition)
-     * the returned state will represent the updated list.
+     * Read a timestamp-limited subrange of the list. The result is ordered by timestamp.
      *
-     * <p>If null or an empty list is passed in, the state value will be null.
-     *
-     * @param values The new values for the state.
-     * @throws Exception The method may forward exception thrown internally (by I/O or functions).
+     * <p>All values with timestamps >= minTimestamp and < limitTimestamp will be in the resuling
+     * iterable. This means that only timestamps strictly less than
+     * Instant.ofEpochMilli(Long.MAX_VALUE) can be used as timestamps.
      */
-    void update(List<T> values) throws Exception;
+    Iterable<TimestampedValue<T>> readRange(long minTimestamp, long limitTimestamp);
 
     /**
-     * Updates the operator state accessible by {@link #get()} by adding the given values to
-     * existing list of values. The next time {@link #get()} is called (for the same state
-     * partition) the returned state will represent the updated list.
+     * Clear a timestamp-limited subrange of the list.
      *
-     * <p>If null or an empty list is passed in, the state value remains unchanged.
-     *
-     * @param values The new values to be added to the state.
-     * @throws Exception The method may forward exception thrown internally (by I/O or functions).
+     * <p>All values with timestamps >= minTimestamp and < limitTimestamp will be removed from the
+     * list.
      */
-    void addAll(List<T> values) throws Exception;
+    void clearRange(long minTimestamp, long limitTimestamp);
 }

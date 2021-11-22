@@ -36,6 +36,8 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReducingState;
 import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TemporalListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
@@ -288,6 +290,12 @@ public abstract class JdbcXaSinkTestBase extends JdbcTestBase {
 
             @Override
             public <T> ListState<T> getListState(ListStateDescriptor<T> stateProperties) {
+                return null;
+            }
+
+            @Override
+            public <T> TemporalListState<T> getTemporalListState(
+                    TemporalListStateDescriptor<T> stateProperties) {
                 return null;
             }
 

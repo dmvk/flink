@@ -20,11 +20,10 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.state.TimestampedValue;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.api.common.typeutils.base.ListSerializer;
-
-import java.util.List;
+import org.apache.flink.api.common.typeutils.base.TimestampedValueSerializer;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -34,22 +33,22 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * @param <T> The type of the elements in the list.
  */
 @PublicEvolving
-public final class ListTypeInfo<T> extends TypeInformation<List<T>> {
+public final class TimestampedValueTypeInfo<T> extends TypeInformation<TimestampedValue<T>> {
 
     private static final long serialVersionUID = 1L;
 
     private final TypeInformation<T> elementTypeInfo;
 
-    public ListTypeInfo(Class<T> elementTypeClass) {
+    public TimestampedValueTypeInfo(Class<T> elementTypeClass) {
         this.elementTypeInfo = of(checkNotNull(elementTypeClass, "elementTypeClass"));
     }
 
-    public ListTypeInfo(TypeInformation<T> elementTypeInfo) {
+    public TimestampedValueTypeInfo(TypeInformation<T> elementTypeInfo) {
         this.elementTypeInfo = checkNotNull(elementTypeInfo, "elementTypeInfo");
     }
 
     // ------------------------------------------------------------------------
-    //  ListTypeInfo specific properties
+    //  TimestampedValueTypeInfo specific properties
     // ------------------------------------------------------------------------
 
     /** Gets the type information for the elements contained in the list */
@@ -85,8 +84,8 @@ public final class ListTypeInfo<T> extends TypeInformation<List<T>> {
 
     @SuppressWarnings("unchecked")
     @Override
-    public Class<List<T>> getTypeClass() {
-        return (Class<List<T>>) (Class<?>) List.class;
+    public Class<TimestampedValue<T>> getTypeClass() {
+        return (Class<TimestampedValue<T>>) (Class<?>) TimestampedValue.class;
     }
 
     @Override
@@ -95,24 +94,24 @@ public final class ListTypeInfo<T> extends TypeInformation<List<T>> {
     }
 
     @Override
-    public TypeSerializer<List<T>> createSerializer(ExecutionConfig config) {
-        TypeSerializer<T> elementTypeSerializer = elementTypeInfo.createSerializer(config);
-        return new ListSerializer<>(elementTypeSerializer);
+    public TypeSerializer<TimestampedValue<T>> createSerializer(ExecutionConfig config) {
+        final TypeSerializer<T> elementTypeSerializer = elementTypeInfo.createSerializer(config);
+        return new TimestampedValueSerializer<>(elementTypeSerializer);
     }
 
     // ------------------------------------------------------------------------
 
     @Override
     public String toString() {
-        return "List<" + elementTypeInfo + '>';
+        return "TimestampedValue<" + elementTypeInfo + '>';
     }
 
     @Override
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
-        } else if (obj instanceof ListTypeInfo) {
-            final ListTypeInfo<?> other = (ListTypeInfo<?>) obj;
+        } else if (obj instanceof TimestampedValueTypeInfo) {
+            final TimestampedValueTypeInfo<?> other = (TimestampedValueTypeInfo<?>) obj;
             return other.canEqual(this) && elementTypeInfo.equals(other.elementTypeInfo);
         } else {
             return false;

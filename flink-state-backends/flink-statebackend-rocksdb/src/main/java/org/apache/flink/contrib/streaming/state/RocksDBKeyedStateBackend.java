@@ -136,7 +136,10 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
                                     (StateFactory) RocksDBAggregatingState::create),
                             Tuple2.of(
                                     StateDescriptor.Type.REDUCING,
-                                    (StateFactory) RocksDBReducingState::create))
+                                    (StateFactory) RocksDBReducingState::create),
+                            Tuple2.of(
+                                    StateDescriptor.Type.TEMPORAL_LIST,
+                                    (StateFactory) RocksDBTemporalListState::create))
                     .collect(Collectors.toMap(t -> t.f0, t -> t.f1));
 
     private interface StateFactory {

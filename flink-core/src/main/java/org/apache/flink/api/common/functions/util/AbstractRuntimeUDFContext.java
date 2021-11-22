@@ -39,6 +39,8 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReducingState;
 import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TemporalListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.core.fs.Path;
@@ -208,6 +210,13 @@ public abstract class AbstractRuntimeUDFContext implements RuntimeContext {
     @Override
     @PublicEvolving
     public <T> ListState<T> getListState(ListStateDescriptor<T> stateProperties) {
+        throw new UnsupportedOperationException(
+                "This state is only accessible by functions executed on a KeyedStream");
+    }
+
+    @Override
+    public <T> TemporalListState<T> getTemporalListState(
+            TemporalListStateDescriptor<T> stateProperties) {
         throw new UnsupportedOperationException(
                 "This state is only accessible by functions executed on a KeyedStream");
     }

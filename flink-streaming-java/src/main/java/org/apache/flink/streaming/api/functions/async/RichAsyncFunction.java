@@ -42,6 +42,8 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReducingState;
 import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TemporalListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.metrics.groups.OperatorMetricGroup;
@@ -185,6 +187,13 @@ public abstract class RichAsyncFunction<IN, OUT> extends AbstractRichFunction
 
         @Override
         public <T> ListState<T> getListState(ListStateDescriptor<T> stateProperties) {
+            throw new UnsupportedOperationException(
+                    "State is not supported in rich async functions.");
+        }
+
+        @Override
+        public <T> TemporalListState<T> getTemporalListState(
+                TemporalListStateDescriptor<T> stateProperties) {
             throw new UnsupportedOperationException(
                     "State is not supported in rich async functions.");
         }

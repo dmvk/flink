@@ -18,11 +18,13 @@
 
 package org.apache.flink.api.common.state;
 
-import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.Experimental;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.base.ListSerializer;
+import org.apache.flink.api.common.typeutils.base.TimestampedValueSerializer;
 import org.apache.flink.api.java.typeutils.ListTypeInfo;
+import org.apache.flink.api.java.typeutils.TimestampedValueTypeInfo;
 
 import java.util.List;
 
@@ -30,50 +32,52 @@ import java.util.List;
  * A {@link StateDescriptor} for {@link ListState}. This can be used to create state where the type
  * is a list that can be appended and iterated over.
  *
- * <p>Using {@code ListState} is typically more efficient than manually maintaining a list in a
- * {@link ValueState}, because the backing implementation can support efficient appends, rather than
- * replacing the full list on write.
+ * <p>Using {@link TemporalListState} is typically more efficient than manually maintaining a list
+ * in a {@link ValueState}, because the backing implementation can support efficient appends, rather
+ * than replacing the full list on write.
  *
  * <p>To create keyed list state (on a KeyedStream), use {@link
- * org.apache.flink.api.common.functions.RuntimeContext#getListState(ListStateDescriptor)}.
+ * org.apache.flink.api.common.functions.RuntimeContext#getTemporalListState(TemporalListStateDescriptor)}.
  *
  * @param <T> The type of the values that can be added to the list state.
  */
-@PublicEvolving
-public class ListStateDescriptor<T> extends StateDescriptor<ListState<T>, List<T>> {
-    private static final long serialVersionUID = 2L;
+@Experimental
+public class TemporalListStateDescriptor<T>
+        extends StateDescriptor<TemporalListState<T>, List<TimestampedValue<T>>> {
+
+    private static final long serialVersionUID = 1L;
 
     /**
-     * Creates a new {@code ListStateDescriptor} with the given name and list element type.
+     * Creates a new {@link TemporalListStateDescriptor} with the given name and list element type.
      *
      * <p>If this constructor fails (because it is not possible to describe the type via a class),
-     * consider using the {@link #ListStateDescriptor(String, TypeInformation)} constructor.
+     * consider using the {@link #TemporalListStateDescriptor(String, TypeInformation)} constructor.
      *
      * @param name The (unique) name for the state.
      * @param elementTypeClass The type of the elements in the state.
      */
-    public ListStateDescriptor(String name, Class<T> elementTypeClass) {
-        super(name, new ListTypeInfo<>(elementTypeClass), null);
+    public TemporalListStateDescriptor(String name, Class<T> elementTypeClass) {
+        super(name, new ListTypeInfo<>(new TimestampedValueTypeInfo<T>(elementTypeClass)), null);
     }
 
     /**
-     * Creates a new {@code ListStateDescriptor} with the given name and list element type.
+     * Creates a new {@link TemporalListStateDescriptor} with the given name and list element type.
      *
      * @param name The (unique) name for the state.
      * @param elementTypeInfo The type of the elements in the state.
      */
-    public ListStateDescriptor(String name, TypeInformation<T> elementTypeInfo) {
-        super(name, new ListTypeInfo<>(elementTypeInfo), null);
+    public TemporalListStateDescriptor(String name, TypeInformation<T> elementTypeInfo) {
+        super(name, new ListTypeInfo<>(new TimestampedValueTypeInfo<T>(elementTypeInfo)), null);
     }
 
     /**
-     * Creates a new {@code ListStateDescriptor} with the given name and list element type.
+     * Creates a new {@link TemporalListStateDescriptor} with the given name and list element type.
      *
      * @param name The (unique) name for the state.
      * @param typeSerializer The type serializer for the list values.
      */
-    public ListStateDescriptor(String name, TypeSerializer<T> typeSerializer) {
-        super(name, new ListSerializer<>(typeSerializer), null);
+    public TemporalListStateDescriptor(String name, TypeSerializer<T> typeSerializer) {
+        super(name, new ListSerializer<>(new TimestampedValueSerializer<>(typeSerializer)), null);
     }
 
     /**
@@ -81,18 +85,17 @@ public class ListStateDescriptor<T> extends StateDescriptor<ListState<T>, List<T
      *
      * @return The serializer for the elements in the list.
      */
-    public TypeSerializer<T> getElementSerializer() {
+    public TypeSerializer<TimestampedValue<T>> getElementSerializer() {
         // call getSerializer() here to get the initialization check and proper error message
-        final TypeSerializer<List<T>> rawSerializer = getSerializer();
+        final TypeSerializer<List<TimestampedValue<T>>> rawSerializer = getSerializer();
         if (!(rawSerializer instanceof ListSerializer)) {
             throw new IllegalStateException();
         }
-
-        return ((ListSerializer<T>) rawSerializer).getElementSerializer();
+        return ((ListSerializer<TimestampedValue<T>>) rawSerializer).getElementSerializer();
     }
 
     @Override
     public Type getType() {
-        return Type.LIST;
+        return Type.TEMPORAL_LIST;
     }
 }

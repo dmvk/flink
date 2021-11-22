@@ -18,30 +18,46 @@
 
 package org.apache.flink.runtime.state.heap;
 
-import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
+import org.apache.flink.api.common.state.TemporalListState;
+import org.apache.flink.api.common.state.TimestampedValue;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.api.common.typeutils.base.ListSerializer;
-import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
-import org.apache.flink.queryablestate.client.state.serialization.KvStateSerializer;
-import org.apache.flink.runtime.state.internal.InternalListState;
+import org.apache.flink.runtime.state.internal.InternalTemporalListState;
 import org.apache.flink.util.Preconditions;
 
-import java.io.ByteArrayOutputStream;
+import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
+
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * Heap-backed partitioned {@link ListState} that is snapshotted into files.
+ * Heap-backed partitioned {@link TemporalListState} that is snapshotted into files.
  *
  * @param <K> The type of the key.
  * @param <N> The type of the namespace.
  * @param <V> The type of the value.
  */
-class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, Iterable<V>>
-        implements InternalListState<K, N, V> {
+class HeapTemporalListState<K, N, V>
+        extends AbstractHeapMergingState<
+                K, N, TimestampedValue<V>, List<TimestampedValue<V>>, Iterable<TimestampedValue<V>>>
+        implements InternalTemporalListState<K, N, V> {
+
+    @VisibleForTesting
+    static <T> void insertSorted(ArrayList<T> array, T element, Comparator<T> comparator) {
+        array.add(element);
+        int j = array.size() - 1;
+        while (j > 0 && comparator.compare(array.get(j - 1), element) > 0) {
+            array.set(j, array.get(j - 1));
+            j--;
+        }
+        array.set(j, element);
+    }
+
     /**
      * Creates a new key/value state for the given hash map of key/value pairs.
      *
@@ -51,12 +67,12 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
      * @param namespaceSerializer The serializer for the namespace.
      * @param defaultValue The default value for the state.
      */
-    private HeapListState(
-            StateTable<K, N, List<V>> stateTable,
+    private HeapTemporalListState(
+            StateTable<K, N, List<TimestampedValue<V>>> stateTable,
             TypeSerializer<K> keySerializer,
-            TypeSerializer<List<V>> valueSerializer,
+            TypeSerializer<List<TimestampedValue<V>>> valueSerializer,
             TypeSerializer<N> namespaceSerializer,
-            List<V> defaultValue) {
+            List<TimestampedValue<V>> defaultValue) {
         super(stateTable, keySerializer, valueSerializer, namespaceSerializer, defaultValue);
     }
 
@@ -71,7 +87,7 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
     }
 
     @Override
-    public TypeSerializer<List<V>> getValueSerializer() {
+    public TypeSerializer<List<TimestampedValue<V>>> getValueSerializer() {
         return valueSerializer;
     }
 
@@ -80,24 +96,24 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
     // ------------------------------------------------------------------------
 
     @Override
-    public Iterable<V> get() {
+    public Iterable<TimestampedValue<V>> get() {
         return getInternal();
     }
 
     @Override
-    public void add(V value) {
-        Preconditions.checkNotNull(value, "You cannot add null to a ListState.");
-
+    public void add(TimestampedValue<V> value) {
+        Preconditions.checkNotNull(value, "You cannot add null to a TemporalListState.");
         final N namespace = currentNamespace;
-
-        final StateTable<K, N, List<V>> map = stateTable;
-        List<V> list = map.get(namespace);
-
+        final StateTable<K, N, List<TimestampedValue<V>>> map = stateTable;
+        List<TimestampedValue<V>> list = map.get(namespace);
         if (list == null) {
             list = new ArrayList<>();
             map.put(namespace, list);
         }
-        list.add(value);
+        insertSorted(
+                (ArrayList<TimestampedValue<V>>) list,
+                value,
+                Comparator.comparingLong(TimestampedValue::getTimestamp));
     }
 
     @Override
@@ -105,40 +121,41 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
             final byte[] serializedKeyAndNamespace,
             final TypeSerializer<K> safeKeySerializer,
             final TypeSerializer<N> safeNamespaceSerializer,
-            final TypeSerializer<List<V>> safeValueSerializer)
+            final TypeSerializer<List<TimestampedValue<V>>> safeValueSerializer)
             throws Exception {
+        // We can reuse the list state here...
+        final HeapListState<K, N, TimestampedValue<V>> listState =
+                new HeapListState<>(
+                        stateTable,
+                        safeKeySerializer,
+                        safeValueSerializer,
+                        safeNamespaceSerializer,
+                        getDefaultValue());
+        return listState.getSerializedValue(
+                serializedKeyAndNamespace,
+                safeKeySerializer,
+                safeNamespaceSerializer,
+                safeValueSerializer);
+    }
 
-        Preconditions.checkNotNull(serializedKeyAndNamespace);
-        Preconditions.checkNotNull(safeKeySerializer);
-        Preconditions.checkNotNull(safeNamespaceSerializer);
-        Preconditions.checkNotNull(safeValueSerializer);
+    @Override
+    public Iterable<TimestampedValue<V>> readRange(long minTimestamp, long limitTimestamp) {
+        final List<TimestampedValue<V>> internal = getInternal();
+        final int minIdx =
+                Collections.binarySearch(internal, new TimestampedValue<>(null, minTimestamp));
+        final int maxIdx =
+                Collections.binarySearch(internal, new TimestampedValue<>(null, limitTimestamp));
+        return internal.subList(minIdx, maxIdx + 1);
+    }
 
-        Tuple2<K, N> keyAndNamespace =
-                KvStateSerializer.deserializeKeyAndNamespace(
-                        serializedKeyAndNamespace, safeKeySerializer, safeNamespaceSerializer);
-
-        List<V> result = stateTable.get(keyAndNamespace.f0, keyAndNamespace.f1);
-
-        if (result == null) {
-            return null;
-        }
-
-        final TypeSerializer<V> dupSerializer =
-                ((ListSerializer<V>) safeValueSerializer).getElementSerializer();
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputViewStreamWrapper view = new DataOutputViewStreamWrapper(baos);
-
-        // write the same as RocksDB writes lists, with one ',' separator
-        for (int i = 0; i < result.size(); i++) {
-            dupSerializer.serialize(result.get(i), view);
-            if (i < result.size() - 1) {
-                view.writeByte(',');
-            }
-        }
-        view.flush();
-
-        return baos.toByteArray();
+    @Override
+    public void clearRange(long minTimestamp, long limitTimestamp) {
+        final List<TimestampedValue<V>> internal = getInternal();
+        final int minIdx =
+                Collections.binarySearch(internal, new TimestampedValue<>(null, minTimestamp));
+        final int maxIdx =
+                Collections.binarySearch(internal, new TimestampedValue<>(null, limitTimestamp));
+        internal.subList(minIdx, maxIdx).clear();
     }
 
     // ------------------------------------------------------------------------
@@ -146,48 +163,14 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
     // ------------------------------------------------------------------------
 
     @Override
-    protected List<V> mergeState(List<V> a, List<V> b) {
-        a.addAll(b);
-        return a;
-    }
-
-    @Override
-    public void update(List<V> values) throws Exception {
-        Preconditions.checkNotNull(values, "List of values to add cannot be null.");
-
-        if (values.isEmpty()) {
-            clear();
-            return;
-        }
-
-        List<V> newStateList = new ArrayList<>();
-        for (V v : values) {
-            Preconditions.checkNotNull(v, "You cannot add null to a ListState.");
-            newStateList.add(v);
-        }
-
-        stateTable.put(currentNamespace, newStateList);
-    }
-
-    @Override
-    public void addAll(List<V> values) throws Exception {
-        Preconditions.checkNotNull(values, "List of values to add cannot be null.");
-
-        if (!values.isEmpty()) {
-            stateTable.transform(
-                    currentNamespace,
-                    values,
-                    (previousState, value) -> {
-                        if (previousState == null) {
-                            previousState = new ArrayList<>();
-                        }
-                        for (V v : value) {
-                            Preconditions.checkNotNull(v, "You cannot add null to a ListState.");
-                            previousState.add(v);
-                        }
-                        return previousState;
-                    });
-        }
+    protected List<TimestampedValue<V>> mergeState(
+            List<TimestampedValue<V>> a, List<TimestampedValue<V>> b) {
+        final List<TimestampedValue<V>> merged = new ArrayList<>();
+        Iterables.mergeSorted(
+                        Arrays.asList(a, b),
+                        Comparator.comparingLong(TimestampedValue::getTimestamp))
+                .forEach(merged::add);
+        return merged;
     }
 
     @SuppressWarnings("unchecked")
@@ -196,11 +179,11 @@ class HeapListState<K, N, V> extends AbstractHeapMergingState<K, N, V, List<V>, 
             StateTable<K, N, SV> stateTable,
             TypeSerializer<K> keySerializer) {
         return (IS)
-                new HeapListState<>(
-                        (StateTable<K, N, List<E>>) stateTable,
+                new HeapTemporalListState<>(
+                        (StateTable<K, N, List<TimestampedValue<E>>>) stateTable,
                         keySerializer,
-                        (TypeSerializer<List<E>>) stateTable.getStateSerializer(),
+                        (TypeSerializer<List<TimestampedValue<E>>>) stateTable.getStateSerializer(),
                         stateTable.getNamespaceSerializer(),
-                        (List<E>) stateDesc.getDefaultValue());
+                        (List<TimestampedValue<E>>) stateDesc.getDefaultValue());
     }
 }

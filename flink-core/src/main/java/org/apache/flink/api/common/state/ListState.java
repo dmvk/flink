@@ -35,7 +35,7 @@ import java.util.List;
  * consistently together.
  *
  * <p>When it is an operator list state, the list is a collection of state items that are
- * independent from each other and eligible for redistribution across operator instances in case of
+ * independent of each other and eligible for redistribution across operator instances in case of
  * changed operator parallelism.
  *
  * @param <T> Type of values that this list state keeps.
@@ -44,7 +44,7 @@ import java.util.List;
 public interface ListState<T> extends MergingState<T, Iterable<T>> {
 
     /**
-     * Updates the operator state accessible by {@link #get()} by updating existing values to to the
+     * Updates the operator state accessible by {@link #get()} by updating existing values to the
      * given list of values. The next time {@link #get()} is called (for the same state partition)
      * the returned state will represent the updated list.
      *
