@@ -146,6 +146,8 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 
     private final DispatcherCachedOperationsHandler dispatcherCachedOperationsHandler;
 
+    private final GlobalCleanupStage globalCleanupStage;
+
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
         SUBMISSION,
@@ -204,6 +206,13 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                         dispatcherServices.getOperationCaches(),
                         this::triggerSavepointAndGetLocation,
                         this::stopWithSavepointAndGetLocation);
+
+        this.globalCleanupStage =
+                new GlobalCleanupStage(ioExecutor)
+                        .withCleanupOf(jobGraphWriter)
+                        .withCleanupOf(blobServer)
+                        .withCleanupOf(highAvailabilityServices)
+                        .withCleanupOf(jobManagerMetricGroup);
     }
 
     // ------------------------------------------------------
@@ -469,14 +478,8 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
     }
 
     enum CleanupJobState {
-        LOCAL(false),
-        GLOBAL(true);
-
-        final boolean cleanupHAData;
-
-        CleanupJobState(boolean cleanupHAData) {
-            this.cleanupHAData = cleanupHAData;
-        }
+        LOCAL,
+        GLOBAL
     }
 
     private CleanupJobState jobManagerRunnerFailed(JobID jobId, Throwable throwable) {
@@ -800,16 +803,37 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 
     private CompletableFuture<Void> removeJob(JobID jobId, CleanupJobState cleanupJobState) {
         final JobManagerRunner job = checkNotNull(runningJobs.remove(jobId));
-        return CompletableFuture.supplyAsync(
-                        () -> cleanUpJobGraph(jobId, cleanupJobState.cleanupHAData), ioExecutor)
-                .thenCompose(
-                        jobGraphRemoved -> job.closeAsync().thenApply(ignored -> jobGraphRemoved))
-                .thenAcceptAsync(
-                        jobGraphRemoved -> {
-                            cleanUpRemainingJobData(jobId, jobGraphRemoved);
-                            cleanUpJobResult(jobId, jobGraphRemoved);
+
+        switch (cleanupJobState) {
+            case LOCAL:
+                return cleanupLocally(job);
+            case GLOBAL:
+                return globalCleanupStage.cleanup(job);
+            default:
+                throw new IllegalStateException("Invalid cleanup state: " + cleanupJobState);
+        }
+    }
+
+    private CompletableFuture<Void> cleanupLocally(JobManagerRunner jobManagerRunner) {
+        return CompletableFuture.runAsync(
+                        () -> {
+                            try {
+                                jobGraphWriter.releaseJobGraph(jobManagerRunner.getJobID());
+                            } catch (Exception e) {
+                                log.warn(
+                                        "Could not properly release job {} from submitted job graph store.",
+                                        jobManagerRunner.getJobID(),
+                                        e);
+                            }
                         },
-                        ioExecutor);
+                        ioExecutor)
+                .thenCompose(ignored -> jobManagerRunner.closeAsync())
+                .thenAccept(
+                        ignored -> {
+                            jobManagerMetricGroup.cleanupJobData(jobManagerRunner.getJobID());
+                            blobServer.deleteJobArtifactsFromLocalStorageDirectory(
+                                    jobManagerRunner.getJobID());
+                        });
     }
 
     /**
@@ -833,11 +857,6 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                         e);
                 return false;
             }
-        }
-        try {
-            jobGraphWriter.releaseJobGraph(jobId);
-        } catch (Exception e) {
-            log.warn("Could not properly release job {} from submitted job graph store.", jobId, e);
         }
         return false;
     }
