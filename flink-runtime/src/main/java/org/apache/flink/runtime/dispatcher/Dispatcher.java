@@ -27,6 +27,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.checkpoint.Checkpoints;
+import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.client.DuplicateJobSubmissionException;
 import org.apache.flink.runtime.client.JobSubmissionException;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
@@ -40,6 +41,7 @@ import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobmanager.JobGraphWriter;
+import org.apache.flink.runtime.jobmaster.CheckpointJobDataCleanupRunner;
 import org.apache.flink.runtime.jobmaster.JobManagerRunner;
 import org.apache.flink.runtime.jobmaster.JobManagerRunnerResult;
 import org.apache.flink.runtime.jobmaster.JobManagerSharedServices;
@@ -66,6 +68,7 @@ import org.apache.flink.runtime.rpc.PermanentlyFencedRpcEndpoint;
 import org.apache.flink.runtime.rpc.RpcService;
 import org.apache.flink.runtime.rpc.RpcServiceUtils;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
+import org.apache.flink.runtime.state.SharedStateRegistry;
 import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
@@ -240,6 +243,8 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
         }
 
         startRecoveredJobs();
+        startCleanupRetries();
+
         this.dispatcherBootstrap =
                 this.dispatcherBootstrapFactory.create(
                         getSelfGateway(DispatcherGateway.class),
@@ -271,6 +276,26 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                     new DispatcherException(
                             String.format(
                                     "Could not start recovered job %s.", recoveredJob.getJobID()),
+                            throwable));
+        }
+    }
+
+    private void startCleanupRetries() {
+        globallyTerminatedJobs.forEach(this::runCleanupRetry);
+        globallyTerminatedJobs.clear();
+    }
+
+    private void runCleanupRetry(final JobResult jobResult) {
+        checkNotNull(jobResult);
+
+        try {
+            initializeAndStartCheckpointJobDataCleanupRunner(jobResult);
+        } catch (Throwable throwable) {
+            onFatalError(
+                    new DispatcherException(
+                            String.format(
+                                    "Could not start cleanup retry for job %s.",
+                                    jobResult.getJobId()),
                             throwable));
         }
     }
@@ -434,6 +459,14 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
         runJob(jobManagerRunner, executionType);
     }
 
+    private void initializeAndStartCheckpointJobDataCleanupRunner(JobResult jobResult)
+            throws Exception {
+        Preconditions.checkState(!runningJobs.containsKey(jobResult.getJobId()));
+        final JobManagerRunner checkpointJobDataCleanupRunner =
+                initializeCheckpointJobDataCleanupRunner(jobResult);
+        runJob(checkpointJobDataCleanupRunner, ExecutionType.RECOVERY);
+    }
+
     private void runJob(JobManagerRunner jobManagerRunner, ExecutionType executionType)
             throws Exception {
         final JobID jobId = jobManagerRunner.getJobID();
@@ -502,6 +535,18 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                 jobManagerSharedServices,
                 new DefaultJobManagerJobMetricGroupFactory(jobManagerMetricGroup),
                 fatalErrorHandler,
+                System.currentTimeMillis());
+    }
+
+    CheckpointJobDataCleanupRunner initializeCheckpointJobDataCleanupRunner(JobResult jobResult)
+            throws Exception {
+        return new CheckpointJobDataCleanupRunner(
+                jobResult,
+                highAvailabilityServices.getCheckpointRecoveryFactory(),
+                new CheckpointsCleaner(),
+                SharedStateRegistry.DEFAULT_FACTORY,
+                configuration,
+                ioExecutor,
                 System.currentTimeMillis());
     }
 
