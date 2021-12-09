@@ -265,7 +265,7 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
     private void runRecoveredJob(final JobGraph recoveredJob) {
         checkNotNull(recoveredJob);
         try {
-            runJob(recoveredJob, ExecutionType.RECOVERY);
+            initializeAndStartJobManagerRunner(recoveredJob, ExecutionType.RECOVERY);
         } catch (Throwable throwable) {
             onFatalError(
                     new DispatcherException(
@@ -424,19 +424,21 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 
     private void persistAndRunJob(JobGraph jobGraph) throws Exception {
         jobGraphWriter.putJobGraph(jobGraph);
-        runJob(jobGraph, ExecutionType.SUBMISSION);
+        initializeAndStartJobManagerRunner(jobGraph, ExecutionType.SUBMISSION);
     }
 
-    private void runJob(JobGraph jobGraph, ExecutionType executionType) throws Exception {
+    private void initializeAndStartJobManagerRunner(JobGraph jobGraph, ExecutionType executionType)
+            throws Exception {
         Preconditions.checkState(!runningJobs.containsKey(jobGraph.getJobID()));
-        long initializationTimestamp = System.currentTimeMillis();
-        JobManagerRunner jobManagerRunner =
-                initializeJobManagerRunner(jobGraph, initializationTimestamp);
+        final JobManagerRunner jobManagerRunner = initializeJobManagerRunner(jobGraph);
+        runJob(jobManagerRunner, executionType);
+    }
 
+    private void runJob(JobManagerRunner jobManagerRunner, ExecutionType executionType)
+            throws Exception {
+        final JobID jobId = jobManagerRunner.getJobID();
         jobManagerRunner.start();
-        runningJobs.put(jobGraph.getJobID(), jobManagerRunner);
-
-        final JobID jobId = jobGraph.getJobID();
+        runningJobs.put(jobId, jobManagerRunner);
 
         final CompletableFuture<CleanupJobState> cleanupJobStateFuture =
                 jobManagerRunner
@@ -488,8 +490,7 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
         return CleanupJobState.LOCAL;
     }
 
-    JobManagerRunner initializeJobManagerRunner(JobGraph jobGraph, long initializationTimestamp)
-            throws Exception {
+    JobManagerRunner initializeJobManagerRunner(JobGraph jobGraph) throws Exception {
         final RpcService rpcService = getRpcService();
 
         return jobManagerRunnerFactory.createJobManagerRunner(
@@ -501,7 +502,7 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                 jobManagerSharedServices,
                 new DefaultJobManagerJobMetricGroupFactory(jobManagerMetricGroup),
                 fatalErrorHandler,
-                initializationTimestamp);
+                System.currentTimeMillis());
     }
 
     @Override
