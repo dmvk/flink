@@ -83,6 +83,7 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -149,7 +150,7 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 
     private final DispatcherCachedOperationsHandler dispatcherCachedOperationsHandler;
 
-    private final GlobalCleanupStage globalCleanupStage;
+    private final ResourceCleaner resourceCleaner;
 
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
@@ -210,12 +211,7 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
                         this::triggerSavepointAndGetLocation,
                         this::stopWithSavepointAndGetLocation);
 
-        this.globalCleanupStage =
-                new GlobalCleanupStage(ioExecutor)
-                        .withCleanupOf(jobGraphWriter)
-                        .withCleanupOf(blobServer)
-                        .withCleanupOf(highAvailabilityServices)
-                        .withCleanupOf(jobManagerMetricGroup);
+        this.resourceCleaner = new ResourceCleaner(ioExecutor);
     }
 
     // ------------------------------------------------------
@@ -429,7 +425,18 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
         return persistAndRunFuture.handleAsync(
                 (acknowledge, throwable) -> {
                     if (throwable != null) {
-                        cleanUpHighAvailabilityJobData(jobGraph.getJobID());
+                        final CompletableFuture<Void> cleanupFuture =
+                                resourceCleaner.cleanup(
+                                        jobGraph.getJobID(),
+                                        Arrays.asList(
+                                                ResourceCleaner.CleanupStage.of(
+                                                        jobManagerMetricGroup),
+                                                jobGraphWriter.getGlobalCleanupStage(),
+                                                blobServer.getGlobalCleanupStage(),
+                                                ResourceCleaner.CleanupStage.of(
+                                                        highAvailabilityServices)));
+                        // TODO better
+                        cleanupFuture.join();
                         ClusterEntryPointExceptionUtils.tryEnrichClusterEntryPointError(throwable);
                         final Throwable strippedThrowable =
                                 ExceptionUtils.stripCompletionException(throwable);
@@ -846,109 +853,29 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
     }
 
     private CompletableFuture<Void> removeJob(JobID jobId, CleanupJobState cleanupJobState) {
-        final JobManagerRunner job = checkNotNull(runningJobs.remove(jobId));
-
+        final JobManagerRunner jobManagerRunner = checkNotNull(runningJobs.remove(jobId));
         switch (cleanupJobState) {
             case LOCAL:
-                return cleanupLocally(job);
+                return resourceCleaner.cleanup(
+                        jobId,
+                        Arrays.asList(
+                                ResourceCleaner.CleanupStage.of(jobManagerRunner),
+                                ResourceCleaner.CleanupStage.of(jobManagerMetricGroup),
+                                jobGraphWriter.getLocalCleanupStage(),
+                                blobServer.getLocalCleanupStage()));
             case GLOBAL:
-                return globalCleanupStage.cleanup(job);
+                return resourceCleaner.cleanup(
+                        jobId,
+                        Arrays.asList(
+                                ResourceCleaner.CleanupStage.of(jobManagerRunner),
+                                ResourceCleaner.CleanupStage.of(jobManagerMetricGroup),
+                                jobGraphWriter.getGlobalCleanupStage(),
+                                blobServer.getGlobalCleanupStage(),
+                                ResourceCleaner.CleanupStage.of(highAvailabilityServices)));
             default:
-                throw new IllegalStateException("Invalid cleanup state: " + cleanupJobState);
+                throw new IllegalStateException(
+                        String.format("Invalid cleanup state: %s", cleanupJobState));
         }
-    }
-
-    private CompletableFuture<Void> cleanupLocally(JobManagerRunner jobManagerRunner) {
-        return CompletableFuture.runAsync(
-                        () -> {
-                            try {
-                                jobGraphWriter.releaseJobGraph(jobManagerRunner.getJobID());
-                            } catch (Exception e) {
-                                log.warn(
-                                        "Could not properly release job {} from submitted job graph store.",
-                                        jobManagerRunner.getJobID(),
-                                        e);
-                            }
-                        },
-                        ioExecutor)
-                .thenCompose(ignored -> jobManagerRunner.closeAsync())
-                .thenAccept(
-                        ignored -> {
-                            jobManagerMetricGroup.cleanupJobData(jobManagerRunner.getJobID());
-                            blobServer.deleteJobArtifactsFromLocalStorageDirectory(
-                                    jobManagerRunner.getJobID());
-                        });
-    }
-
-    /**
-     * Clean up job graph from {@link org.apache.flink.runtime.jobmanager.JobGraphStore}.
-     *
-     * @param jobId Reference to the job that we want to clean.
-     * @param cleanupHA Flag signalling whether we should remove (we're done with the job) or just
-     *     release the job graph.
-     * @return True if we have removed the job graph. This means we can clean other HA-related
-     *     services as well.
-     */
-    private boolean cleanUpJobGraph(JobID jobId, boolean cleanupHA) {
-        if (cleanupHA) {
-            try {
-                jobGraphWriter.cleanupJobData(jobId);
-                return true;
-            } catch (Exception e) {
-                log.warn(
-                        "Could not properly remove job {} from submitted job graph store.",
-                        jobId,
-                        e);
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private void cleanUpRemainingJobData(JobID jobId, boolean jobGraphRemoved) {
-        try {
-            jobManagerMetricGroup.cleanupJobData(jobId);
-        } catch (Exception e) {
-            log.warn(
-                    "Could not properly clean data for job {} stored in JobManager metric group",
-                    jobId,
-                    e);
-        }
-
-        if (jobGraphRemoved) {
-            try {
-                highAvailabilityServices.cleanupJobData(jobId);
-            } catch (Exception e) {
-                log.warn(
-                        "Could not properly clean data for job {} stored by ha services", jobId, e);
-            }
-
-            try {
-                blobServer.cleanupJobData(jobId);
-            } catch (Exception e) {
-                log.warn(
-                        "Could not properly clean data for job {} stored in the BlobServer.",
-                        jobId,
-                        e);
-            }
-        } else {
-            blobServer.deleteJobArtifactsFromLocalStorageDirectory(jobId);
-        }
-    }
-
-    private void cleanUpJobResult(JobID jobId, boolean jobGraphRemoved) {
-        if (jobGraphRemoved) {
-            try {
-                jobResultStore.markResultAsClean(jobId);
-            } catch (IOException e) {
-                log.warn("Could not properly mark job {} result as clean.", jobId, e);
-            }
-        }
-    }
-
-    private void cleanUpHighAvailabilityJobData(JobID jobId) {
-        final boolean jobGraphRemoved = cleanUpJobGraph(jobId, true);
-        cleanUpRemainingJobData(jobId, jobGraphRemoved);
     }
 
     /** Terminate all currently running {@link JobManagerRunner}s. */

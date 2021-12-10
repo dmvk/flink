@@ -26,6 +26,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.configuration.SecurityOptions;
 import org.apache.flink.runtime.dispatcher.JobCleanup;
+import org.apache.flink.runtime.dispatcher.ResourceCleaner;
 import org.apache.flink.runtime.net.SSLUtils;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FileUtils;
@@ -967,5 +968,18 @@ public class BlobServer extends Thread
         synchronized (activeConnections) {
             return new ArrayList<>(activeConnections);
         }
+    }
+
+    /** TODO BETTER */
+    public ResourceCleaner.CleanupStage getLocalCleanupStage() {
+        return (jobId, ioExecutor) ->
+                ResourceCleaner.asyncCleanup(
+                        () -> deleteJobArtifactsFromLocalStorageDirectory(jobId), ioExecutor);
+    }
+
+    /** TODO BETTER */
+    public ResourceCleaner.CleanupStage getGlobalCleanupStage() {
+        return (jobId, ioExecutor) ->
+                ResourceCleaner.asyncCleanup(() -> cleanupJobData(jobId), ioExecutor);
     }
 }

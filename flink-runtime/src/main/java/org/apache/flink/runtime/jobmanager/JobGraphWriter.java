@@ -20,6 +20,7 @@ package org.apache.flink.runtime.jobmanager;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.dispatcher.JobCleanup;
+import org.apache.flink.runtime.dispatcher.ResourceCleaner;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 
 /** Allows to store and remove job graphs. */
@@ -41,6 +42,20 @@ public interface JobGraphWriter extends JobCleanup {
      * @throws Exception if the locks cannot be released
      */
     void releaseJobGraph(JobID jobId) throws Exception;
+
+    /** TODO BETTER */
+    default ResourceCleaner.CleanupStage getLocalCleanupStage() {
+        return (jobId, ioExecutor) ->
+                ResourceCleaner.asyncCleanup(
+                        () -> JobGraphWriter.this.releaseJobGraph(jobId), ioExecutor);
+    }
+
+    /** TODO BETTER */
+    default ResourceCleaner.CleanupStage getGlobalCleanupStage() {
+        return (jobId, ioExecutor) ->
+                ResourceCleaner.asyncCleanup(
+                        () -> JobGraphWriter.this.cleanupJobData(jobId), ioExecutor);
+    }
 
     @Override
     default void cleanupJobData(JobID jobId) throws Exception {}
