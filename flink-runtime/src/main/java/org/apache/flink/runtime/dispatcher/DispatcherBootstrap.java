@@ -19,10 +19,17 @@
 package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.runtime.messages.webmonitor.ApplicationOverview;
+
+import java.util.Optional;
 
 /** An interface containing the logic of bootstrapping the {@link Dispatcher} of a cluster. */
 @Internal
 public interface DispatcherBootstrap {
+
+    default Optional<ApplicationOverview> getApplicationOverview() {
+        return Optional.empty();
+    }
 
     /**
      * Stops and frees any resources (e.g. threads) acquired during the execution of the bootstrap.

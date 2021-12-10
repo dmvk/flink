@@ -40,6 +40,7 @@ import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
+import org.apache.flink.runtime.messages.webmonitor.ApplicationOverview;
 import org.apache.flink.runtime.rpc.FatalErrorHandler;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
@@ -91,6 +92,8 @@ public class ApplicationDispatcherBootstrap implements DispatcherBootstrap {
 
     private final FatalErrorHandler errorHandler;
 
+    private final CompletableFuture<ApplicationOverview> applicationOverviewFuture =
+            new CompletableFuture<>();
     private final CompletableFuture<Void> applicationCompletionFuture;
 
     private final CompletableFuture<Acknowledge> bootstrapCompletionFuture;
@@ -113,6 +116,15 @@ public class ApplicationDispatcherBootstrap implements DispatcherBootstrap {
                 fixJobIdAndRunApplicationAsync(dispatcherGateway, scheduledExecutor);
 
         this.bootstrapCompletionFuture = finishBootstrapTasks(dispatcherGateway);
+    }
+
+    @Override
+    public Optional<ApplicationOverview> getApplicationOverview() {
+        return Optional.of(
+                FutureUtils.getOrDefault(
+                        applicationOverviewFuture,
+                        new ApplicationOverview(
+                                ApplicationStatus.UNKNOWN, Collections.emptyList())));
     }
 
     @Override
@@ -179,10 +191,16 @@ public class ApplicationDispatcherBootstrap implements DispatcherBootstrap {
                             throw new CompletionException(t);
                         })
                 .thenCompose(
-                        applicationStatus ->
-                                shouldShutDownOnFinish
-                                        ? dispatcherGateway.shutDownCluster(applicationStatus)
-                                        : CompletableFuture.completedFuture(Acknowledge.get()));
+                        applicationStatus -> {
+                            if (!applicationOverviewFuture.isDone()) {
+                                applicationOverviewFuture.complete(
+                                        new ApplicationOverview(
+                                                applicationStatus, Collections.emptyList()));
+                            }
+                            return shouldShutDownOnFinish
+                                    ? dispatcherGateway.shutDownCluster(applicationStatus)
+                                    : CompletableFuture.completedFuture(Acknowledge.get());
+                        });
     }
 
     private boolean isCanceledOrFailed(ApplicationStatus applicationStatus) {

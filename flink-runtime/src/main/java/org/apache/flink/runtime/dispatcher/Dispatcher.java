@@ -49,6 +49,7 @@ import org.apache.flink.runtime.jobmaster.factories.DefaultJobManagerJobMetricGr
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
 import org.apache.flink.runtime.messages.FlinkJobTerminatedWithoutCancellationException;
+import org.apache.flink.runtime.messages.webmonitor.ApplicationOverview;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.JobDetails;
 import org.apache.flink.runtime.messages.webmonitor.JobsOverview;
@@ -555,6 +556,18 @@ public abstract class Dispatcher extends PermanentlyFencedRpcEndpoint<Dispatcher
 
         log.debug("Dispatcher is unable to cancel job {}: not found", jobId);
         return FutureUtils.completedExceptionally(new FlinkJobNotFoundException(jobId));
+    }
+
+    @Override
+    public CompletableFuture<ApplicationOverview> requestApplicationOverview(Time timeout) {
+        return dispatcherBootstrap
+                .getApplicationOverview()
+                .map(CompletableFuture::completedFuture)
+                .orElseGet(
+                        () ->
+                                FutureUtils.completedExceptionally(
+                                        new UnsupportedOperationException(
+                                                "Not an application cluster.")));
     }
 
     @Override

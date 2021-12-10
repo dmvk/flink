@@ -29,6 +29,7 @@ import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
+import org.apache.flink.runtime.messages.webmonitor.ApplicationOverview;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
 import org.apache.flink.runtime.metrics.dump.MetricQueryService;
@@ -40,6 +41,7 @@ import org.apache.flink.runtime.rpc.RpcGateway;
 import org.apache.flink.runtime.rpc.RpcTimeout;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.util.SerializedValue;
+import org.apache.flink.util.concurrent.FutureUtils;
 
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
@@ -113,6 +115,18 @@ public interface RestfulGateway extends RpcGateway {
      * @return Future containing the status overview
      */
     CompletableFuture<ClusterOverview> requestClusterOverview(@RpcTimeout Time timeout);
+
+    /**
+     * Requests the application status overview.
+     *
+     * @param timeout for the asynchronous operation
+     * @return Future containing the status overview
+     */
+    default CompletableFuture<ApplicationOverview> requestApplicationOverview(
+            @RpcTimeout Time timeout) {
+        return FutureUtils.completedExceptionally(
+                new UnsupportedOperationException("Not an application cluster."));
+    }
 
     /**
      * Requests the addresses of the {@link MetricQueryService} to query.

@@ -32,6 +32,7 @@ import org.apache.flink.runtime.rest.RestServerEndpoint;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.RestHandlerConfiguration;
 import org.apache.flink.runtime.rest.handler.RestHandlerSpecification;
+import org.apache.flink.runtime.rest.handler.application.ApplicationOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterConfigHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.DashboardConfigHandler;
@@ -89,6 +90,7 @@ import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerLogListHandl
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerStdoutFileHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerThreadDumpHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagersHandler;
+import org.apache.flink.runtime.rest.messages.ApplicationOverviewHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterConfigurationInfoHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterOverviewHeaders;
 import org.apache.flink.runtime.rest.messages.DashboardConfigurationHeaders;
@@ -267,14 +269,21 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                 clusterConfiguration.get(RestOptions.ASYNC_OPERATION_STORE_DURATION);
         final Time timeout = restConfiguration.getTimeout();
 
-        ClusterOverviewHandler clusterOverviewHandler =
+        final ApplicationOverviewHandler applicationOverviewHandler =
+                new ApplicationOverviewHandler(
+                        leaderRetriever,
+                        timeout,
+                        responseHeaders,
+                        ApplicationOverviewHeaders.getInstance());
+
+        final ClusterOverviewHandler clusterOverviewHandler =
                 new ClusterOverviewHandler(
                         leaderRetriever,
                         timeout,
                         responseHeaders,
                         ClusterOverviewHeaders.getInstance());
 
-        DashboardConfigHandler dashboardConfigHandler =
+        final DashboardConfigHandler dashboardConfigHandler =
                 new DashboardConfigHandler(
                         leaderRetriever,
                         timeout,
@@ -284,21 +293,21 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         hasWebSubmissionHandlers,
                         restConfiguration.isWebCancelEnabled());
 
-        JobIdsHandler jobIdsHandler =
+        final JobIdsHandler jobIdsHandler =
                 new JobIdsHandler(
                         leaderRetriever,
                         timeout,
                         responseHeaders,
                         JobIdsWithStatusesOverviewHeaders.getInstance());
 
-        JobsOverviewHandler jobsOverviewHandler =
+        final JobsOverviewHandler jobsOverviewHandler =
                 new JobsOverviewHandler(
                         leaderRetriever,
                         timeout,
                         responseHeaders,
                         JobsOverviewHeaders.getInstance());
 
-        ClusterConfigHandler clusterConfigurationHandler =
+        final ClusterConfigHandler clusterConfigurationHandler =
                 new ClusterConfigHandler(
                         leaderRetriever,
                         timeout,
@@ -306,7 +315,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         ClusterConfigurationInfoHeaders.getInstance(),
                         clusterConfiguration);
 
-        JobConfigHandler jobConfigHandler =
+        final JobConfigHandler jobConfigHandler =
                 new JobConfigHandler(
                         leaderRetriever,
                         timeout,
@@ -315,7 +324,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        CheckpointConfigHandler checkpointConfigHandler =
+        final CheckpointConfigHandler checkpointConfigHandler =
                 new CheckpointConfigHandler(
                         leaderRetriever,
                         timeout,
@@ -324,7 +333,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        CheckpointingStatisticsHandler checkpointStatisticsHandler =
+        final CheckpointingStatisticsHandler checkpointStatisticsHandler =
                 new CheckpointingStatisticsHandler(
                         leaderRetriever,
                         timeout,
@@ -333,7 +342,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        CheckpointStatisticDetailsHandler checkpointStatisticDetailsHandler =
+        final CheckpointStatisticDetailsHandler checkpointStatisticDetailsHandler =
                 new CheckpointStatisticDetailsHandler(
                         leaderRetriever,
                         timeout,
@@ -343,7 +352,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executor,
                         checkpointStatsCache);
 
-        JobPlanHandler jobPlanHandler =
+        final JobPlanHandler jobPlanHandler =
                 new JobPlanHandler(
                         leaderRetriever,
                         timeout,
@@ -352,7 +361,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        TaskCheckpointStatisticDetailsHandler taskCheckpointStatisticDetailsHandler =
+        final TaskCheckpointStatisticDetailsHandler taskCheckpointStatisticDetailsHandler =
                 new TaskCheckpointStatisticDetailsHandler(
                         leaderRetriever,
                         timeout,
@@ -362,7 +371,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executor,
                         checkpointStatsCache);
 
-        JobExceptionsHandler jobExceptionsHandler =
+        final JobExceptionsHandler jobExceptionsHandler =
                 new JobExceptionsHandler(
                         leaderRetriever,
                         timeout,
@@ -371,7 +380,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        JobVertexAccumulatorsHandler jobVertexAccumulatorsHandler =
+        final JobVertexAccumulatorsHandler jobVertexAccumulatorsHandler =
                 new JobVertexAccumulatorsHandler(
                         leaderRetriever,
                         timeout,
@@ -380,7 +389,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        SubtasksAllAccumulatorsHandler subtasksAllAccumulatorsHandler =
+        final SubtasksAllAccumulatorsHandler subtasksAllAccumulatorsHandler =
                 new SubtasksAllAccumulatorsHandler(
                         leaderRetriever,
                         timeout,
@@ -389,7 +398,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        TaskManagersHandler taskManagersHandler =
+        final TaskManagersHandler taskManagersHandler =
                 new TaskManagersHandler(
                         leaderRetriever,
                         timeout,
@@ -397,7 +406,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         TaskManagersHeaders.getInstance(),
                         resourceManagerRetriever);
 
-        TaskManagerDetailsHandler taskManagerDetailsHandler =
+        final TaskManagerDetailsHandler taskManagerDetailsHandler =
                 new TaskManagerDetailsHandler(
                         leaderRetriever,
                         timeout,
@@ -416,7 +425,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executor,
                         metricFetcher);
 
-        JobAccumulatorsHandler jobAccumulatorsHandler =
+        final JobAccumulatorsHandler jobAccumulatorsHandler =
                 new JobAccumulatorsHandler(
                         leaderRetriever,
                         timeout,
@@ -425,7 +434,7 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         executionGraphCache,
                         executor);
 
-        SubtasksTimesHandler subtasksTimesHandler =
+        final SubtasksTimesHandler subtasksTimesHandler =
                 new SubtasksTimesHandler(
                         leaderRetriever,
                         timeout,
@@ -644,6 +653,10 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
             optWebContent = Optional.empty();
         }
 
+        handlers.add(
+                Tuple2.of(
+                        applicationOverviewHandler.getMessageHeaders(),
+                        applicationOverviewHandler));
         handlers.add(Tuple2.of(clusterOverviewHandler.getMessageHeaders(), clusterOverviewHandler));
         handlers.add(
                 Tuple2.of(
