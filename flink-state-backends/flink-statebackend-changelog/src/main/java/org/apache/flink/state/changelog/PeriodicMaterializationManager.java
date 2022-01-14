@@ -19,6 +19,7 @@ package org.apache.flink.state.changelog;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.operators.MailboxExecutor;
+import org.apache.flink.core.fs.FileSystemContext;
 import org.apache.flink.core.fs.FileSystemSafetyNet;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.SnapshotResult;
@@ -194,6 +195,8 @@ class PeriodicMaterializationManager implements Closeable {
             RunnableFuture<SnapshotResult<KeyedStateHandle>> materializedRunnableFuture) {
 
         FileSystemSafetyNet.initializeSafetyNetForThread();
+        // TODO proper context
+        FileSystemContext.initializeContextForThread("materialization");
         CompletableFuture<SnapshotResult<KeyedStateHandle>> result = new CompletableFuture<>();
         try {
             FutureUtils.runIfNotDoneAndGet(materializedRunnableFuture);

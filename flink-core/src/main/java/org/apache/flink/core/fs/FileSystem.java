@@ -406,7 +406,9 @@ public abstract class FileSystem {
      * @throws IOException thrown if a reference to the file system instance could not be obtained
      */
     public static FileSystem get(URI uri) throws IOException {
-        return FileSystemSafetyNet.wrapWithSafetyNetWhenActivated(getUnguardedFileSystem(uri));
+        final FileSystem fileSystem = getUnguardedFileSystem(uri);
+        final FileSystem fileSystemWithContext =  FileSystemContext.wrapWithContextWhenActivated(fileSystem);
+        return FileSystemSafetyNet.wrapWithSafetyNetWhenActivated(fileSystemWithContext);
     }
 
     @Internal

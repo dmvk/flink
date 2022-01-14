@@ -19,11 +19,17 @@
 package org.apache.flink.runtime.fs.hdfs;
 
 import org.apache.flink.core.fs.BlockLocation;
+import org.apache.flink.core.fs.ContextAwareFileSystem;
+import org.apache.flink.core.fs.FSDataInputStream;
+import org.apache.flink.core.fs.FSDataOutputStream;
 import org.apache.flink.core.fs.FileStatus;
 import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.FileSystemContext;
 import org.apache.flink.core.fs.FileSystemKind;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
+import org.apache.flink.runtime.util.HadoopUtils;
+import org.apache.flink.util.WrappingProxy;
 
 import java.io.IOException;
 import java.net.URI;
@@ -34,7 +40,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 /**
  * A {@link FileSystem} that wraps an {@link org.apache.hadoop.fs.FileSystem Hadoop File System}.
  */
-public class HadoopFileSystem extends FileSystem {
+public class HadoopFileSystem extends FileSystem implements ContextAwareFileSystem {
 
     /** The wrapped Hadoop File System. */
     private final org.apache.hadoop.fs.FileSystem fs;
@@ -251,6 +257,112 @@ public class HadoopFileSystem extends FileSystem {
             // the remainder should include hdfs, kosmos, ceph, ...
             // this also includes federated HDFS (viewfs).
             return FileSystemKind.FILE_SYSTEM;
+        }
+    }
+
+    @Override
+    public FileSystem wrap(FileSystem fileSystem, FileSystemContext ctx) {
+        final int maxContextSize = getHadoopFileSystem().getConf().getInt("hadoop.caller.context.max.size", 128);
+        return new WithCallerContext(this, ctx.getName(), maxContextSize);
+    }
+
+    private static class WithCallerContext extends FileSystem implements WrappingProxy<FileSystem> {
+
+        private final HadoopFileSystem inner;
+        private final String context;
+        private final int maxContextSize;
+
+        public WithCallerContext(HadoopFileSystem inner, String context, int maxContextSize) {
+            this.inner = inner;
+            this.context = context;
+            this.maxContextSize = maxContextSize;
+        }
+
+        @Override
+        public Path getWorkingDirectory() {
+            return inner.getWorkingDirectory();
+        }
+
+        @Override
+        public Path getHomeDirectory() {
+            return inner.getHomeDirectory();
+        }
+
+        @Override
+        public URI getUri() {
+            return inner.getUri();
+        }
+
+        @Override
+        public FileStatus getFileStatus(Path f) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.getFileStatus(f);
+        }
+
+        @Override
+        public BlockLocation[] getFileBlockLocations(
+                FileStatus file,
+                long start,
+                long len) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.getFileBlockLocations(file, start, len);
+        }
+
+        @Override
+        public FSDataInputStream open(Path f, int bufferSize) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.open(f, bufferSize);
+        }
+
+        @Override
+        public FSDataInputStream open(Path f) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.open(f);
+        }
+
+        @Override
+        public FileStatus[] listStatus(Path f) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.listStatus(f);
+        }
+
+        @Override
+        public boolean delete(Path f, boolean recursive) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.delete(f, recursive);
+        }
+
+        @Override
+        public boolean mkdirs(Path f) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.mkdirs(f);
+        }
+
+        @Override
+        public FSDataOutputStream create(Path f, WriteMode overwriteMode) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.create(f, overwriteMode);
+        }
+
+        @Override
+        public boolean rename(Path src, Path dst) throws IOException {
+            HadoopUtils.setCallerContext(context, maxContextSize);
+            return inner.rename(src, dst);
+        }
+
+        @Override
+        public boolean isDistributedFS() {
+            return inner.isDistributedFS();
+        }
+
+        @Override
+        public FileSystemKind getKind() {
+            return inner.getKind();
+        }
+
+        @Override
+        public FileSystem getWrappedDelegate() {
+            return inner;
         }
     }
 }

@@ -25,8 +25,8 @@ import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.api.common.cache.DistributedCache;
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.HadoopOptions;
 import org.apache.flink.configuration.TaskManagerOptions;
+import org.apache.flink.core.fs.FileSystemContext;
 import org.apache.flink.core.fs.FileSystemSafetyNet;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.security.FlinkSecurityManager;
@@ -50,7 +50,6 @@ import org.apache.flink.runtime.executiongraph.JobInformation;
 import org.apache.flink.runtime.executiongraph.TaskInformation;
 import org.apache.flink.runtime.externalresource.ExternalResourceInfoProvider;
 import org.apache.flink.runtime.filecache.FileCache;
-import org.apache.flink.runtime.fs.hdfs.HadoopFsFactory;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
 import org.apache.flink.runtime.io.network.TaskEventDispatcher;
@@ -434,19 +433,6 @@ public class Task
 
         // finally, create the executing thread, but do not start it
         executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
-
-        // Add CallerContext.
-        String callerContext =
-                "Flink_Task_"
-                        + "JobID_"
-                        + jobId
-                        + "_TaskName_"
-                        + taskInfo.getTaskName()
-                        + "_"
-                        + taskInfo.getAttemptNumber();
-
-        HadoopFsFactory.setCurrent(
-                tmConfig.getOptional(HadoopOptions.CALLER_CONTEXT_APP_ID).orElse(callerContext));
     }
 
     // ------------------------------------------------------------------------
@@ -632,6 +618,18 @@ public class Task
             // activate safety net for task thread
             LOG.debug("Creating FileSystem stream leak safety net for task {}", this);
             FileSystemSafetyNet.initializeSafetyNetForThread();
+
+            final String callerContext =
+                    "Flink_Task_"
+                            + "JobID_"
+                            + jobId
+                            + "_TaskName_"
+                            + taskInfo.getTaskName()
+                            + "_"
+                            + taskInfo.getAttemptNumber();
+            // TODO we should pass a generic information here and let the implementation decide on
+            // the actual format
+            FileSystemContext.initializeContextForThread(callerContext);
 
             // first of all, get a user-code classloader
             // this may involve downloading the job's JAR files and/or classes

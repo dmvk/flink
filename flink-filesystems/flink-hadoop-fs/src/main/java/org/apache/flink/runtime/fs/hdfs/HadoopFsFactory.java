@@ -75,12 +75,6 @@ public class HadoopFsFactory implements FileSystemFactory {
         // from here on, we need to handle errors due to missing optional
         // dependency classes
         try {
-            // -- (0) set hadoop caller context
-
-            if (getCurrent() != null && flinkConfig != null) {
-                HadoopUtils.setCallerContext(getCurrent(), flinkConfig);
-            }
-
             // -- (1) get the loaded Hadoop config (or fall back to one loaded from the classpath)
 
             final org.apache.hadoop.conf.Configuration hadoopConfig;

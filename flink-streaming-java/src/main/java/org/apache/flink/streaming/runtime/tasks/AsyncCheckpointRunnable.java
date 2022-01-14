@@ -17,6 +17,7 @@
 
 package org.apache.flink.streaming.runtime.tasks;
 
+import org.apache.flink.core.fs.FileSystemContext;
 import org.apache.flink.core.fs.FileSystemSafetyNet;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
@@ -115,6 +116,8 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
                 asyncStartDelayMillis);
 
         FileSystemSafetyNet.initializeSafetyNetForThread();
+        // TODO proper context
+        FileSystemContext.initializeContextForThread("checkpoint");
         try {
 
             SnapshotsFinalizeResult snapshotsFinalizeResult =
