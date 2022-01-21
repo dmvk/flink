@@ -79,7 +79,6 @@ import org.apache.flink.runtime.operators.coordination.TaskNotRunningException;
 import org.apache.flink.runtime.query.KvStateLocation;
 import org.apache.flink.runtime.query.UnknownKvStateLocation;
 import org.apache.flink.runtime.rpc.FatalErrorHandler;
-import org.apache.flink.runtime.scheduler.DefaultOperatorCoordinatorHandler;
 import org.apache.flink.runtime.scheduler.DefaultVertexParallelismInfo;
 import org.apache.flink.runtime.scheduler.DefaultVertexParallelismStore;
 import org.apache.flink.runtime.scheduler.ExecutionGraphFactory;
@@ -167,7 +166,6 @@ public class AdaptiveScheduler
 
     private final Executor ioExecutor;
     private final ClassLoader userCodeClassLoader;
-    private final JobManagerJobMetricGroup jobManagerJobMetricGroup;
 
     private final CheckpointsCleaner checkpointsCleaner;
     private final CompletedCheckpointStore completedCheckpointStore;
@@ -191,7 +189,6 @@ public class AdaptiveScheduler
     private final Duration resourceStabilizationTimeout;
 
     private final ExecutionGraphFactory executionGraphFactory;
-    private final JobStatusStore jobStatusStore;
 
     private State state = new Created(this, LOG);
 
@@ -240,7 +237,6 @@ public class AdaptiveScheduler
         this.ioExecutor = ioExecutor;
         this.userCodeClassLoader = userCodeClassLoader;
         this.restartBackoffTimeStrategy = restartBackoffTimeStrategy;
-        this.jobManagerJobMetricGroup = jobManagerJobMetricGroup;
         this.fatalErrorHandler = fatalErrorHandler;
         this.checkpointsCleaner = checkpointsCleaner;
         this.completedCheckpointStore =
@@ -260,9 +256,6 @@ public class AdaptiveScheduler
         declarativeSlotPool.registerNewSlotsListener(this::newResourcesAvailable);
 
         this.componentMainThreadExecutor = mainThreadExecutor;
-
-        this.jobStatusStore = new JobStatusStore(initializationTimestamp);
-
         this.scaleUpController = new ReactiveScaleUpController(configuration);
 
         this.initialResourceAllocationTimeout = initialResourceAllocationTimeout;
@@ -271,10 +264,10 @@ public class AdaptiveScheduler
 
         this.executionGraphFactory = executionGraphFactory;
 
+        final JobStatusStore jobStatusStore = new JobStatusStore(initializationTimestamp);
         final Collection<JobStatusListener> tmpJobStatusListeners = new ArrayList<>();
         tmpJobStatusListeners.add(Preconditions.checkNotNull(jobStatusListener));
         tmpJobStatusListeners.add(jobStatusStore);
-
         SchedulerBase.registerJobMetrics(
                 jobManagerJobMetricGroup,
                 jobStatusStore,
@@ -282,7 +275,6 @@ public class AdaptiveScheduler
                 tmpJobStatusListeners::add,
                 initializationTimestamp,
                 MetricOptions.JobStatusMetricsSettings.fromConfiguration(configuration));
-
         jobStatusListeners = Collections.unmodifiableCollection(tmpJobStatusListeners);
     }
 
@@ -787,26 +779,6 @@ public class AdaptiveScheduler
     }
 
     @Override
-    public void goToExecuting(ExecutionGraph executionGraph) {
-        final ExecutionGraphHandler executionGraphHandler =
-                new ExecutionGraphHandler(
-                        executionGraph, LOG, ioExecutor, componentMainThreadExecutor);
-        final OperatorCoordinatorHandler operatorCoordinatorHandler =
-                new DefaultOperatorCoordinatorHandler(executionGraph, this::handleGlobalFailure);
-        operatorCoordinatorHandler.initializeOperatorCoordinators(componentMainThreadExecutor);
-        operatorCoordinatorHandler.startAllOperatorCoordinators();
-
-        transitionToState(
-                new Executing.Factory(
-                        executionGraph,
-                        executionGraphHandler,
-                        operatorCoordinatorHandler,
-                        LOG,
-                        this,
-                        userCodeClassLoader));
-    }
-
-    @Override
     public void goToExecuting(
             ExecutionGraph executionGraph,
             ExecutionGraphHandler executionGraphHandler,
@@ -1102,7 +1074,12 @@ public class AdaptiveScheduler
     }
 
     @Override
-    public Executor getMainThreadExecutor() {
+    public Executor getIOExecutor() {
+        return ioExecutor;
+    }
+
+    @Override
+    public ComponentMainThreadExecutor getMainThreadExecutor() {
         return componentMainThreadExecutor;
     }
 
@@ -1152,6 +1129,7 @@ public class AdaptiveScheduler
         Preconditions.checkState(
                 state.getClass() != targetState.getStateClass(),
                 "Attempted to transition into the very state the scheduler is already in.");
+        componentMainThreadExecutor.assertRunningInMainThread();
 
         try {
             isTransitioningState = true;
