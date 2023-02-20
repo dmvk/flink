@@ -19,6 +19,8 @@
 package org.apache.flink.runtime.scheduler;
 
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.jobmaster.JobResourceRequirements;
+import org.apache.flink.runtime.jobmaster.JobVertexResourceRequirements;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -26,6 +28,41 @@ import java.util.Optional;
 
 /** Maintains the configured parallelisms for vertices, which should be defined by a scheduler. */
 public class DefaultVertexParallelismStore implements MutableVertexParallelismStore {
+
+    /**
+     * Create a new {@link VertexParallelismStore} that reflects given {@link
+     * JobResourceRequirements}.
+     *
+     * @param oldVertexParallelismStore old vertex parallelism store that serves as a base for the
+     *     new one
+     * @param jobResourceRequirements to apply over the old vertex parallelism store
+     * @return new vertex parallelism store iff it was updated
+     */
+    public static Optional<VertexParallelismStore> applyJobResourceRequirements(
+            VertexParallelismStore oldVertexParallelismStore,
+            JobResourceRequirements jobResourceRequirements) {
+        final DefaultVertexParallelismStore newVertexParallelismStore =
+                new DefaultVertexParallelismStore();
+        boolean changed = false;
+        for (final JobVertexID jobVertexId : jobResourceRequirements.getJobVertices()) {
+            final VertexParallelismInformation oldVertexParallelismInfo =
+                    oldVertexParallelismStore.getParallelismInfo(jobVertexId);
+            final int parallelism =
+                    jobResourceRequirements
+                            .findParallelism(jobVertexId)
+                            .map(JobVertexResourceRequirements.Parallelism::getUpperBound)
+                            .orElseGet(oldVertexParallelismInfo::getParallelism);
+            newVertexParallelismStore.setParallelismInfo(
+                    jobVertexId,
+                    new DefaultVertexParallelismInfo(
+                            parallelism,
+                            oldVertexParallelismInfo.getMaxParallelism(),
+                            maxParallelism -> Optional.of("Cannot change the max parallelism.")));
+            changed |= oldVertexParallelismInfo.getParallelism() != parallelism;
+        }
+        return changed ? Optional.of(newVertexParallelismStore) : Optional.empty();
+    }
+
     private final Map<JobVertexID, VertexParallelismInformation> vertexToParallelismInfo =
             new HashMap<>();
 

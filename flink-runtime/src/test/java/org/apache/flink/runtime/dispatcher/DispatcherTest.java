@@ -46,6 +46,7 @@ import org.apache.flink.runtime.highavailability.TestingHighAvailabilityServices
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobGraphBuilder;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
+import org.apache.flink.runtime.jobgraph.JobGraphUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobmaster.JobManagerRunner;
@@ -54,6 +55,7 @@ import org.apache.flink.runtime.jobmaster.JobManagerSharedServices;
 import org.apache.flink.runtime.jobmaster.JobMasterGateway;
 import org.apache.flink.runtime.jobmaster.JobMasterService;
 import org.apache.flink.runtime.jobmaster.JobMasterServiceLeadershipRunner;
+import org.apache.flink.runtime.jobmaster.JobResourceRequirements;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.jobmaster.TestingJobManagerRunner;
 import org.apache.flink.runtime.jobmaster.TestingJobMasterService;
@@ -114,6 +116,7 @@ import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.ConcurrentModificationException;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -125,7 +128,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 
+import static org.apache.flink.core.testutils.FlinkAssertions.assertThatFuture;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.instanceOf;
@@ -1164,6 +1169,110 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                         .hasMessage("Test exception."));
     }
 
+    @Test
+    public void testJobResourceRequirementsCanBeOnlyUpdatedOnInitializedJobMasters()
+            throws Exception {
+        final JobManagerRunnerWithBlockingJobMasterFactory blockingJobMaster =
+                new JobManagerRunnerWithBlockingJobMasterFactory();
+        dispatcher = createAndStartDispatcher(heartbeatServices, haServices, blockingJobMaster);
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+        jobMasterLeaderElectionService.isLeader(UUID.randomUUID());
+
+        assertThatFuture(
+                        dispatcherGateway.updateJobResourceRequirements(
+                                jobId, JobResourceRequirements.empty()))
+                .eventuallyFailsWith(ExecutionException.class)
+                .withCauseInstanceOf(FlinkJobNotFoundException.class);
+
+        dispatcherGateway.submitJob(jobGraph, TIMEOUT).get();
+        blockingJobMaster.waitForBlockingInit();
+
+        try {
+            assertThatFuture(
+                            dispatcherGateway.updateJobResourceRequirements(
+                                    jobId, JobResourceRequirements.empty()))
+                    .eventuallyFailsWith(ExecutionException.class)
+                    .withCauseInstanceOf(UnavailableDispatcherOperationException.class);
+        } finally {
+            // Unblocking the job master in the "finally block" prevents getting
+            // stuck during the RPC system tear down in case of test failure.
+            blockingJobMaster.unblockJobMasterInitialization();
+        }
+
+        // We can update the JRR once the job transitions to RUNNING.
+        awaitStatus(dispatcherGateway, jobId, JobStatus.RUNNING);
+        assertThatFuture(
+                        dispatcherGateway.updateJobResourceRequirements(
+                                jobId, JobResourceRequirements.empty()))
+                .eventuallySucceeds();
+    }
+
+    @Test
+    public void testJobResourceRequirementsAreGuardedAgainstConcurrentModification()
+            throws Exception {
+        final CompletableFuture<Acknowledge> blockedUpdatesToJobMasterFuture =
+                new CompletableFuture<>();
+        final JobManagerRunnerWithBlockingJobMasterFactory blockingJobMaster =
+                new JobManagerRunnerWithBlockingJobMasterFactory(
+                        builder ->
+                                builder.setUpdateJobResourceRequirementsFunction(
+                                        jobResourceRequirements ->
+                                                blockedUpdatesToJobMasterFuture));
+        dispatcher = createAndStartDispatcher(heartbeatServices, haServices, blockingJobMaster);
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+
+        // We intentionally perform the test on two jobs to make sure we only the
+        // concurrent modification is prevented on the per-job level.
+        final JobGraph firstJobGraph = JobGraphUtils.clone(jobGraph);
+        firstJobGraph.setJobID(JobID.generate());
+        final JobGraph secondJobGraph = JobGraphUtils.clone(jobGraph);
+        secondJobGraph.setJobID(JobID.generate());
+
+        final CompletableFuture<?> firstPendingUpdateFuture =
+                testConcurrentModificationIsPrevented(
+                        dispatcherGateway, blockingJobMaster, firstJobGraph);
+        Assertions.assertThat(firstPendingUpdateFuture).isNotCompleted();
+        final CompletableFuture<?> secondPendingUpdateFuture =
+                testConcurrentModificationIsPrevented(
+                        dispatcherGateway, blockingJobMaster, secondJobGraph);
+        Assertions.assertThat(secondPendingUpdateFuture).isNotCompleted();
+
+        blockedUpdatesToJobMasterFuture.complete(Acknowledge.get());
+        assertThatFuture(firstPendingUpdateFuture).eventuallySucceeds();
+        assertThatFuture(secondPendingUpdateFuture).eventuallySucceeds();
+    }
+
+    private CompletableFuture<?> testConcurrentModificationIsPrevented(
+            DispatcherGateway dispatcherGateway,
+            JobManagerRunnerWithBlockingJobMasterFactory blockingJobMaster,
+            JobGraph jobGraph)
+            throws Exception {
+        final TestingLeaderElectionService jobMasterLeaderElectionService =
+                new TestingLeaderElectionService();
+        haServices.setJobMasterLeaderElectionService(
+                jobGraph.getJobID(), jobMasterLeaderElectionService);
+        jobMasterLeaderElectionService.isLeader(UUID.randomUUID());
+
+        assertThatFuture(dispatcherGateway.submitJob(jobGraph, TIMEOUT)).eventuallySucceeds();
+        blockingJobMaster.unblockJobMasterInitialization();
+        awaitStatus(dispatcherGateway, jobGraph.getJobID(), JobStatus.RUNNING);
+
+        final CompletableFuture<?> pendingUpdateFuture =
+                dispatcherGateway.updateJobResourceRequirements(
+                        jobGraph.getJobID(), JobResourceRequirements.empty());
+
+        assertThatFuture(
+                        dispatcherGateway.updateJobResourceRequirements(
+                                jobGraph.getJobID(), JobResourceRequirements.empty()))
+                .eventuallyFailsWith(ExecutionException.class)
+                .withCauseInstanceOf(ConcurrentModificationException.class);
+        assertThatFuture(pendingUpdateFuture).isNotCompleted();
+
+        return pendingUpdateFuture;
+    }
+
     private static class JobManagerRunnerWithBlockingJobMasterFactory
             implements JobManagerRunnerFactory {
 
@@ -1173,10 +1282,16 @@ public class DispatcherTest extends AbstractDispatcherTest {
         private final OneShotLatch initLatch;
 
         private JobManagerRunnerWithBlockingJobMasterFactory() {
+            this(Function.identity());
+        }
+
+        private JobManagerRunnerWithBlockingJobMasterFactory(
+                Function<TestingJobMasterGatewayBuilder, TestingJobMasterGatewayBuilder>
+                        modifyGatewayBuilder) {
             this.currentJobStatus = new AtomicReference<>(JobStatus.INITIALIZING);
             this.jobMasterServiceFutures = new ArrayBlockingQueue<>(2);
             this.initLatch = new OneShotLatch();
-            this.jobMasterGateway =
+            final TestingJobMasterGatewayBuilder builder =
                     new TestingJobMasterGatewayBuilder()
                             .setRequestJobSupplier(
                                     () ->
@@ -1185,8 +1300,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                                             new ArchivedExecutionGraphBuilder()
                                                                     .setState(
                                                                             currentJobStatus.get())
-                                                                    .build())))
-                            .build();
+                                                                    .build())));
+            this.jobMasterGateway = modifyGatewayBuilder.apply(builder).build();
         }
 
         @Override
@@ -1213,7 +1328,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                         initLatch.trigger();
                                         final CompletableFuture<JobMasterService> result =
                                                 new CompletableFuture<>();
-                                        jobMasterServiceFutures.offer(result);
+                                        Preconditions.checkState(
+                                                jobMasterServiceFutures.offer(result));
                                         return result;
                                     })),
                     highAvailabilityServices.getJobManagerLeaderElectionService(

@@ -62,6 +62,7 @@ import org.apache.flink.runtime.jobmaster.JobManagerRunner;
 import org.apache.flink.runtime.jobmaster.JobManagerRunnerResult;
 import org.apache.flink.runtime.jobmaster.JobManagerSharedServices;
 import org.apache.flink.runtime.jobmaster.JobMasterGateway;
+import org.apache.flink.runtime.jobmaster.JobResourceRequirements;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.jobmaster.factories.DefaultJobManagerJobMetricGroupFactory;
 import org.apache.flink.runtime.messages.Acknowledge;
@@ -103,6 +104,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -189,6 +191,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     private final Map<JobID, Long> uninitializedJobClientHeartbeatTimeout = new HashMap<>();
     private final long jobClientAlivenessCheckInterval;
     private ScheduledFuture<?> jobClientAlivenessCheck;
+
+    /**
+     * Simple datastructure to keep track of pending {@link JobResourceRequirements} updates, so we
+     * can prevent race conditions.
+     */
+    final Set<JobID> pendingJobResourceRequirementsUpdates = new HashSet<>();
 
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
@@ -1113,6 +1121,45 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 cancelJob(jobID, webTimeout);
             }
         }
+    }
+
+    @Override
+    public CompletableFuture<JobResourceRequirements> requestJobResourceRequirements(JobID jobId) {
+        return performOperationOnJobMasterGateway(
+                jobId, JobMasterGateway::requestJobResourceRequirements);
+    }
+
+    @Override
+    public CompletableFuture<Acknowledge> updateJobResourceRequirements(
+            JobID jobId, JobResourceRequirements jobResourceRequirements) {
+        if (!pendingJobResourceRequirementsUpdates.add(jobId)) {
+            return FutureUtils.completedExceptionally(
+                    new ConcurrentModificationException(
+                            "Another update to the job [%s] resource requirements is in progress."));
+        }
+        return performOperationOnJobMasterGateway(
+                        jobId,
+                        jobMasterGateway ->
+                                jobMasterGateway.updateJobResourceRequirements(
+                                        jobResourceRequirements))
+                .thenApplyAsync(
+                        ack -> {
+                            try {
+                                jobGraphWriter.putJobResourceRequirements(
+                                        jobId, jobResourceRequirements);
+                            } catch (Exception e) {
+                                throw new CompletionException(
+                                        "We could not persist the resource requirements."
+                                                + " They're in effect, but we might not be able"
+                                                + " to recover them after failover. Please retry.",
+                                        e);
+                            }
+                            return ack;
+                        },
+                        ioExecutor)
+                .whenCompleteAsync(
+                        (ack, error) -> pendingJobResourceRequirementsUpdates.remove(jobId),
+                        getMainThreadExecutor());
     }
 
     private void setClientHeartbeatTimeoutForInitializedJob() {

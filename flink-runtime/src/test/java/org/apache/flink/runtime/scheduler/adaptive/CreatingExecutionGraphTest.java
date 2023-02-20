@@ -269,6 +269,11 @@ public class CreatingExecutionGraphTest extends TestLogger {
             this.tryToAssignSlotsFunction = tryToAssignSlotsFunction;
         }
 
+        @Override
+        public void freeExcessiveReservedSlots() {
+            // no-op
+        }
+
         public void setGlobalFailureHandler(GlobalFailureHandler globalFailureHandler) {
             this.globalFailureHandler = globalFailureHandler;
         }

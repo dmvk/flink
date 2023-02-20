@@ -299,4 +299,20 @@ public interface JobMasterGateway
      */
     CompletableFuture<?> stopTrackingAndReleasePartitions(
             Collection<ResultPartitionID> partitionIds);
+
+    /**
+     * Read current {@link JobResourceRequirements job resource requirements}.
+     *
+     * @return Future which that contains current resource requirements.
+     */
+    CompletableFuture<JobResourceRequirements> requestJobResourceRequirements();
+
+    /**
+     * Update {@link JobResourceRequirements job resource requirements}.
+     *
+     * @param jobResourceRequirements new resource requirements
+     * @return Future which is completed successfully when requirements are updated
+     */
+    CompletableFuture<Acknowledge> updateJobResourceRequirements(
+            JobResourceRequirements jobResourceRequirements);
 }
