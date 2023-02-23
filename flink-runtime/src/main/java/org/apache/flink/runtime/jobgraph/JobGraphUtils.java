@@ -24,6 +24,7 @@ import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.util.FileUtils;
 import org.apache.flink.util.FlinkRuntimeException;
+import org.apache.flink.util.InstantiationUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,5 +92,19 @@ public enum JobGraphUtils {
         }
 
         return result;
+    }
+
+    /**
+     * Create a deep copy of the {@link JobGraph} by running it through the serde cycle.
+     *
+     * @param jobGraph job graph to clone
+     * @return cloned job graph
+     */
+    public static JobGraph clone(JobGraph jobGraph) {
+        try {
+            return InstantiationUtil.clone(jobGraph);
+        } catch (IOException | ClassNotFoundException e) {
+            throw new RuntimeException("Unable to clone the JobGraph.", e);
+        }
     }
 }

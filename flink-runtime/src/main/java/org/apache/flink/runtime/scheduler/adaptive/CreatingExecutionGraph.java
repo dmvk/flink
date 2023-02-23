@@ -26,6 +26,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.runtime.jobgraph.jsonplan.JsonPlanGenerator;
+import org.apache.flink.runtime.jobmaster.slotpool.DeclarativeSlotPool;
 import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
 import org.apache.flink.runtime.scheduler.DefaultOperatorCoordinatorHandler;
 import org.apache.flink.runtime.scheduler.ExecutionGraphHandler;
@@ -135,6 +136,7 @@ public class CreatingExecutionGraph implements State {
                                                 .iterator(),
                                 executionGraphWithVertexParallelism.getVertexParallelism());
                 executionGraph.setJsonPlan(updatedPlan);
+                context.freeExcessiveReservedSlots();
                 context.goToExecuting(
                         result.getExecutionGraph(),
                         executionGraphHandler,
@@ -218,6 +220,13 @@ public class CreatingExecutionGraph implements State {
          */
         AssignmentResult tryToAssignSlots(
                 ExecutionGraphWithVertexParallelism executionGraphWithVertexParallelism);
+
+        /**
+         * Frees reserved slots that are no longer needed (e.g. after downscaling). It's up to the
+         * {@link DeclarativeSlotPool} implementation to decide whether the freed slots will be
+         * released or not.
+         */
+        void freeExcessiveReservedSlots();
 
         /**
          * Gets the I/O executor.

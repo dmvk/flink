@@ -111,7 +111,6 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -134,7 +133,6 @@ import java.util.stream.StreamSupport;
 
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createExecutionAttemptId;
 import static org.apache.flink.runtime.jobmaster.slotpool.DefaultDeclarativeSlotPoolTest.createSlotOffersForResourceRequirements;
-import static org.apache.flink.runtime.jobmaster.slotpool.SlotPoolTestUtils.offerSlots;
 import static org.apache.flink.runtime.scheduler.SchedulerTestingUtils.acknowledgePendingCheckpoint;
 import static org.apache.flink.runtime.scheduler.SchedulerTestingUtils.createFailedTaskExecutionState;
 import static org.apache.flink.runtime.scheduler.SchedulerTestingUtils.enableCheckpointing;
@@ -191,7 +189,7 @@ public class DefaultSchedulerTest extends TestLogger {
     @Before
     public void setUp() throws Exception {
         executor = Executors.newSingleThreadExecutor();
-        scheduledExecutorService = new DirectScheduledExecutorService();
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         configuration = new Configuration();
 
@@ -1430,7 +1428,6 @@ public class DefaultSchedulerTest extends TestLogger {
                         .build();
 
         final JobGraph jobGraph = singleNonParallelJobVertexJobGraph();
-        final JobVertex onlyJobVertex = getOnlyJobVertex(jobGraph);
 
         final Configuration configuration = new Configuration();
         configuration.set(
@@ -1465,28 +1462,30 @@ public class DefaultSchedulerTest extends TestLogger {
         final AdaptiveSchedulerTest.SubmissionBufferingTaskManagerGateway taskManagerGateway =
                 new AdaptiveSchedulerTest.SubmissionBufferingTaskManagerGateway(1);
 
+        final TaskManagerLocation taskManagerLocation = new LocalTaskManagerLocation();
+        assertTrue(slotPool.registerTaskManager(taskManagerLocation.getResourceID()));
+
         taskManagerGateway.setCancelConsumer(
-                executionAttemptId -> {
-                    singleThreadMainThreadExecutor.execute(
-                            () ->
-                                    scheduler.updateTaskExecutionState(
-                                            new TaskExecutionState(
-                                                    executionAttemptId, ExecutionState.CANCELED)));
-                });
+                executionAttemptId ->
+                        singleThreadMainThreadExecutor.execute(
+                                () ->
+                                        scheduler.updateTaskExecutionState(
+                                                new TaskExecutionState(
+                                                        executionAttemptId,
+                                                        ExecutionState.CANCELED))));
 
         singleThreadMainThreadExecutor.execute(
                 () -> {
                     scheduler.startScheduling();
-
-                    offerSlots(
-                            slotPool,
+                    slotPool.offerSlots(
+                            taskManagerLocation,
+                            taskManagerGateway,
                             createSlotOffersForResourceRequirements(
-                                    ResourceCounter.withResource(ResourceProfile.UNKNOWN, 1)),
-                            taskManagerGateway);
+                                    ResourceCounter.withResource(ResourceProfile.UNKNOWN, 1)));
                 });
 
         // wait for the first task submission
-        taskManagerGateway.waitForSubmissions(1, Duration.ofSeconds(5));
+        taskManagerGateway.waitForSubmissions(1);
 
         // sleep a bit to ensure uptime is > 0
         Thread.sleep(10L);
