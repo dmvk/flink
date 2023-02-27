@@ -100,8 +100,8 @@ import org.apache.flink.runtime.scheduler.adaptive.allocator.JobAllocationsInfor
 import org.apache.flink.runtime.scheduler.adaptive.allocator.ReservedSlots;
 import org.apache.flink.runtime.scheduler.adaptive.allocator.SlotAllocator;
 import org.apache.flink.runtime.scheduler.adaptive.allocator.VertexParallelism;
-import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.ReactiveScaleUpController;
-import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.ScaleUpController;
+import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.EnforceMinimalIncreaseRescalingController;
+import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.RescalingController;
 import org.apache.flink.runtime.scheduler.exceptionhistory.ExceptionHistoryEntry;
 import org.apache.flink.runtime.scheduler.exceptionhistory.RootExceptionHistoryEntry;
 import org.apache.flink.runtime.scheduler.metrics.DeploymentStateTimeMetrics;
@@ -192,7 +192,7 @@ public class AdaptiveScheduler
 
     private final SlotAllocator slotAllocator;
 
-    private final ScaleUpController scaleUpController;
+    private final RescalingController rescalingController;
 
     private final Duration initialResourceAllocationTimeout;
 
@@ -268,7 +268,7 @@ public class AdaptiveScheduler
 
         this.componentMainThreadExecutor = mainThreadExecutor;
 
-        this.scaleUpController = new ReactiveScaleUpController(configuration);
+        this.rescalingController = new EnforceMinimalIncreaseRescalingController(configuration);
 
         this.initialResourceAllocationTimeout = initialResourceAllocationTimeout;
 
@@ -424,8 +424,8 @@ public class AdaptiveScheduler
 
     private void newResourcesAvailable(Collection<? extends PhysicalSlot> physicalSlots) {
         state.tryRun(
-                ResourceConsumer.class,
-                ResourceConsumer::notifyNewResourcesAvailable,
+                ResourceListener.class,
+                ResourceListener::onNewResourcesAvailable,
                 "newResourcesAvailable");
     }
 
@@ -1051,27 +1051,17 @@ public class AdaptiveScheduler
     }
 
     @Override
-    public boolean canScaleUp(ExecutionGraph executionGraph) {
-        int availableSlots = declarativeSlotPool.getFreeSlotsInformation().size();
-
-        if (availableSlots > 0) {
-            final Optional<VertexParallelism> potentialNewParallelism =
-                    slotAllocator.determineParallelism(
-                            jobInformation, declarativeSlotPool.getAllSlotsInformation());
-
-            if (potentialNewParallelism.isPresent()) {
-                int currentCumulativeParallelism = getCurrentCumulativeParallelism(executionGraph);
-                int newCumulativeParallelism =
-                        potentialNewParallelism.get().getCumulativeParallelism();
-                if (newCumulativeParallelism > currentCumulativeParallelism) {
-                    LOG.debug(
-                            "Offering scale up to scale up controller with currentCumulativeParallelism={}, newCumulativeParallelism={}",
-                            currentCumulativeParallelism,
-                            newCumulativeParallelism);
-                    return scaleUpController.canScaleUp(
-                            currentCumulativeParallelism, newCumulativeParallelism);
-                }
-            }
+    public boolean shouldRescale(ExecutionGraph executionGraph) {
+        final Optional<VertexParallelism> maybeNewParallelism =
+                slotAllocator.determineParallelism(
+                        jobInformation, declarativeSlotPool.getAllSlotsInformation());
+        if (maybeNewParallelism.isPresent()) {
+            final int currentCumulativeParallelism =
+                    getCurrentCumulativeParallelism(executionGraph);
+            final int newCumulativeParallelism =
+                    maybeNewParallelism.get().getCumulativeParallelism();
+            return rescalingController.shouldRescale(
+                    currentCumulativeParallelism, newCumulativeParallelism);
         }
         return false;
     }
