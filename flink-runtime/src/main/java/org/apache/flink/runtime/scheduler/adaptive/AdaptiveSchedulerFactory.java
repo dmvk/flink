@@ -32,6 +32,7 @@ import org.apache.flink.runtime.executiongraph.failover.flip1.RestartBackoffTime
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobmaster.ExecutionDeploymentTracker;
+import org.apache.flink.runtime.jobmaster.JobResourceRequirements;
 import org.apache.flink.runtime.jobmaster.slotpool.DeclarativeSlotPool;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotPoolService;
 import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
@@ -123,6 +124,7 @@ public class AdaptiveSchedulerFactory implements SchedulerNGFactory {
 
         return new AdaptiveScheduler(
                 jobGraph,
+                JobResourceRequirements.readFromJobGraph(jobGraph).orElse(null),
                 jobMasterConfiguration,
                 declarativeSlotPool,
                 slotAllocator,
