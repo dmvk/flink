@@ -223,6 +223,8 @@ public class AdaptiveScheduler
 
     private final JobManagerJobMetricGroup jobManagerJobMetricGroup;
 
+    private final Duration slotIdleTimeout;
+
     public AdaptiveScheduler(
             JobGraph jobGraph,
             @Nullable JobResourceRequirements jobResourceRequirements,
@@ -314,6 +316,8 @@ public class AdaptiveScheduler
                 new BoundedFIFOQueue<>(
                         configuration.getInteger(WebOptions.MAX_EXCEPTION_HISTORY_SIZE));
         this.jobManagerJobMetricGroup = jobManagerJobMetricGroup;
+        this.slotIdleTimeout =
+                Duration.ofMillis(configuration.get(JobManagerOptions.SLOT_IDLE_TIMEOUT));
     }
 
     private static void assertPreconditions(JobGraph jobGraph) throws RuntimeException {
@@ -444,6 +448,7 @@ public class AdaptiveScheduler
 
     @Override
     public void startScheduling() {
+        checkIdleSlotTimeout();
         state.as(Created.class)
                 .orElseThrow(
                         () ->
@@ -1050,6 +1055,14 @@ public class AdaptiveScheduler
                 .orElseGet(CreatingExecutionGraph.AssignmentResult::notPossible);
     }
 
+    @Override
+    public void freeExcessiveReservedSlots() {
+        for (SlotInfo slotInfo : declarativeSlotPool.getFreeSlotsInformation()) {
+            declarativeSlotPool.freeReservedSlot(
+                    slotInfo.getAllocationId(), null, System.currentTimeMillis());
+        }
+    }
+
     @Nonnull
     private ExecutionGraph assignSlotsToExecutionGraph(
             ExecutionGraph executionGraph, ReservedSlots reservedSlots) {
@@ -1254,5 +1267,18 @@ public class AdaptiveScheduler
     @VisibleForTesting
     State getState() {
         return state;
+    }
+
+    /**
+     * Check for slots that are idle for more than {@link JobManagerOptions#SLOT_IDLE_TIMEOUT} and
+     * release them back to the ResourceManager.
+     */
+    private void checkIdleSlotTimeout() {
+        declarativeSlotPool.releaseIdleSlots(System.currentTimeMillis());
+        getMainThreadExecutor()
+                .schedule(
+                        this::checkIdleSlotTimeout,
+                        slotIdleTimeout.toMillis(),
+                        TimeUnit.MILLISECONDS);
     }
 }
