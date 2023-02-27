@@ -25,10 +25,10 @@ import org.assertj.core.api.InstanceOfAssertFactory;
 import org.assertj.core.api.ListAssert;
 import org.assertj.core.api.ThrowingConsumer;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.stream.Stream;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /** Some reusable assertions and utilities for AssertJ. */
 public final class FlinkAssertions {
@@ -62,7 +62,7 @@ public final class FlinkAssertions {
                                 clazz, containsMessage)
                         .anySatisfy(
                                 cause ->
-                                        assertThat(cause)
+                                        Assertions.assertThat(cause)
                                                 .isInstanceOf(clazz)
                                                 .hasMessageContaining(containsMessage));
     }
@@ -84,7 +84,7 @@ public final class FlinkAssertions {
         return t ->
                 assertThatChainOfCauses(t)
                         .as("Any cause is instance of class '%s'", clazz)
-                        .anySatisfy(cause -> assertThat(cause).isInstanceOf(clazz));
+                        .anySatisfy(cause -> Assertions.assertThat(cause).isInstanceOf(clazz));
     }
 
     /**
@@ -103,7 +103,10 @@ public final class FlinkAssertions {
         return t ->
                 assertThatChainOfCauses(t)
                         .as("Any cause contains message '%s'", containsMessage)
-                        .anySatisfy(t1 -> assertThat(t1).hasMessageContaining(containsMessage));
+                        .anySatisfy(
+                                t1 ->
+                                        Assertions.assertThat(t1)
+                                                .hasMessageContaining(containsMessage));
     }
 
     /**
@@ -115,7 +118,8 @@ public final class FlinkAssertions {
      * }</pre>
      */
     public static ListAssert<Throwable> assertThatChainOfCauses(Throwable root) {
-        return assertThat(root).extracting(FlinkAssertions::chainOfCauses, STREAM_THROWABLE);
+        return Assertions.assertThat(root)
+                .extracting(FlinkAssertions::chainOfCauses, STREAM_THROWABLE);
     }
 
     /**
@@ -138,5 +142,30 @@ public final class FlinkAssertions {
             return Stream.of(throwable);
         }
         return Stream.concat(Stream.of(throwable), chainOfCauses(throwable.getCause()));
+    }
+
+    /**
+     * Create assertion for {@link java.util.concurrent.CompletableFuture}.
+     *
+     * @param actual the actual value.
+     * @param <T> the type of the value contained in the {@link
+     *     java.util.concurrent.CompletableFuture}.
+     * @return the created assertion object.
+     */
+    public static <T> FlinkCompletableFutureAssert<T> assertThatFuture(
+            CompletableFuture<T> actual) {
+        return new FlinkCompletableFutureAssert<>(actual);
+    }
+
+    /**
+     * Create assertion for {@link java.util.concurrent.CompletableFuture}.
+     *
+     * @param actual the actual value.
+     * @param <T> the type of the value contained in the {@link
+     *     java.util.concurrent.CompletableFuture}.
+     * @return the created assertion object.
+     */
+    public static <T> FlinkCompletableFutureAssert<T> assertThatFuture(CompletionStage<T> actual) {
+        return new FlinkCompletableFutureAssert<>(actual);
     }
 }
