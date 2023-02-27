@@ -644,6 +644,14 @@ public class MiniCluster implements AutoCloseableAsync {
      */
     @Override
     public CompletableFuture<Void> closeAsync() {
+        return closeInternal(true);
+    }
+
+    public CompletableFuture<Void> closeAsyncWithoutCleaningHighAvailabilityData() {
+        return closeInternal(false);
+    }
+
+    private CompletableFuture<Void> closeInternal(boolean cleanupHaData) {
         synchronized (lock) {
             if (running) {
                 LOG.info("Shutting down Flink Mini Cluster");
@@ -674,7 +682,7 @@ public class MiniCluster implements AutoCloseableAsync {
                     final CompletableFuture<Void> remainingServicesTerminationFuture =
                             FutureUtils.runAfterwards(
                                     rpcServicesTerminationFuture,
-                                    this::terminateMiniClusterServices);
+                                    () -> terminateMiniClusterServices(cleanupHaData));
 
                     final CompletableFuture<Void> executorsTerminationFuture =
                             FutureUtils.composeAfterwards(
@@ -1004,7 +1012,7 @@ public class MiniCluster implements AutoCloseableAsync {
         // When MiniCluster uses the local RPC, the provided JobGraph is passed directly to the
         // Dispatcher. This means that any mutations to the JG can affect the Dispatcher behaviour,
         // so we rather clone it to guard against this.
-        final JobGraph clonedJobGraph = cloneJobGraph(jobGraph);
+        final JobGraph clonedJobGraph = InstantiationUtil.cloneUnchecked(jobGraph);
         checkRestoreModeForChangelogStateBackend(clonedJobGraph);
         final CompletableFuture<DispatcherGateway> dispatcherGatewayFuture =
                 getDispatcherGatewayFuture();
@@ -1236,7 +1244,7 @@ public class MiniCluster implements AutoCloseableAsync {
                 });
     }
 
-    private void terminateMiniClusterServices() throws Exception {
+    private void terminateMiniClusterServices(boolean cleanupHaData) throws Exception {
         // collect the first exception, but continue and add all successive
         // exceptions as suppressed
         Exception exception = null;
@@ -1264,7 +1272,11 @@ public class MiniCluster implements AutoCloseableAsync {
             // shut down high-availability services
             if (haServices != null) {
                 try {
-                    haServices.closeAndCleanupAllData();
+                    if (cleanupHaData) {
+                        haServices.closeAndCleanupAllData();
+                    } else {
+                        haServices.close();
+                    }
                 } catch (Exception e) {
                     exception = ExceptionUtils.firstOrSuppressed(e, exception);
                 }
@@ -1322,14 +1334,6 @@ public class MiniCluster implements AutoCloseableAsync {
             if (workingDirectory != null) {
                 workingDirectory.delete();
             }
-        }
-    }
-
-    private static JobGraph cloneJobGraph(JobGraph jobGraph) {
-        try {
-            return InstantiationUtil.clone(jobGraph);
-        } catch (ClassNotFoundException | IOException e) {
-            throw new IllegalStateException("Unable to clone the provided JobGraph.", e);
         }
     }
 
