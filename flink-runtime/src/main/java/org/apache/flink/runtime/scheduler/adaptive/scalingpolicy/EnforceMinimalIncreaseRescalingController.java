@@ -18,31 +18,24 @@
 package org.apache.flink.runtime.scheduler.adaptive.scalingpolicy;
 
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.JobManagerOptions;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import static org.apache.flink.configuration.JobManagerOptions.MIN_PARALLELISM_INCREASE;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
+/**
+ * Simple scaling policy for a reactive mode. The user can configure a minimum cumulative
+ * parallelism increase to allow a scale up.
+ */
+public class EnforceMinimalIncreaseRescalingController implements RescalingController {
 
-/** Tests for the {@link ScaleUpController}. */
-public class ScaleUpControllerTest extends TestLogger {
-    private static final Configuration TEST_CONFIG = new Configuration();
+    private final int minParallelismIncrease;
 
-    static {
-        TEST_CONFIG.set(JobManagerOptions.MIN_PARALLELISM_INCREASE, 2);
+    public EnforceMinimalIncreaseRescalingController(Configuration configuration) {
+        minParallelismIncrease = configuration.get(MIN_PARALLELISM_INCREASE);
     }
 
-    @Test
-    public void testScaleUp() {
-        ScaleUpController suc = new ReactiveScaleUpController(TEST_CONFIG);
-        assertThat(suc.canScaleUp(1, 4), is(true));
-    }
-
-    @Test
-    public void testNoScaleUp() {
-        ScaleUpController suc = new ReactiveScaleUpController(TEST_CONFIG);
-        assertThat(suc.canScaleUp(2, 3), is(false));
+    @Override
+    public boolean shouldRescale(int currentCumulativeParallelism, int newCumulativeParallelism) {
+        return Math.abs(newCumulativeParallelism - currentCumulativeParallelism)
+                >= minParallelismIncrease;
     }
 }
