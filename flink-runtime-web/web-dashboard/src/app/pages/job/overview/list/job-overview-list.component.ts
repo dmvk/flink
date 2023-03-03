@@ -26,6 +26,9 @@ import { JobBadgeComponent } from '@flink-runtime-web/components/job-badge/job-b
 import { ResizeComponent } from '@flink-runtime-web/components/resize/resize.component';
 import { TaskBadgeComponent } from '@flink-runtime-web/components/task-badge/task-badge.component';
 import { NodesItemCorrect } from '@flink-runtime-web/interfaces';
+import { NzBadgeModule } from 'ng-zorro-antd/badge';
+import { NzButtonModule } from 'ng-zorro-antd/button';
+import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzTableModule } from 'ng-zorro-antd/table';
 import { NzTableSortFn } from 'ng-zorro-antd/table/src/table.types';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
@@ -35,6 +38,8 @@ function createSortFn(
 ): NzTableSortFn<NodesItemCorrect> {
   return (pre, next) => (selector(pre)! > selector(next)! ? 1 : -1);
 }
+
+const rescaleTimeout = 2500;
 
 @Component({
   selector: 'flink-job-overview-list',
@@ -52,7 +57,10 @@ function createSortFn(
     HumanizeDatePipe,
     HumanizeDurationPipe,
     TaskBadgeComponent,
-    ResizeComponent
+    ResizeComponent,
+    NzButtonModule,
+    NzIconModule,
+    NzBadgeModule
   ],
   standalone: true
 })
@@ -74,13 +82,24 @@ export class JobOverviewListComponent {
   public sortValue: string;
   public left = 390;
 
+  public desiredParallelism = new Map<string, number>();
+
+  public rescaleTimeoutId: number | undefined;
+
   @Output() public readonly nodeClick = new EventEmitter<NodesItemCorrect>();
+
+  @Output() public readonly rescale = new EventEmitter<Map<string, number>>();
 
   @Input() public selectedNode: NodesItemCorrect;
 
   @Input()
   public set nodes(value: NodesItemCorrect[]) {
     this.innerNodes = value;
+    for (const node of value) {
+      if (node.parallelism == this.desiredParallelism.get(node.id)) {
+        this.desiredParallelism.delete(node.id);
+      }
+    }
   }
 
   public get nodes(): NodesItemCorrect[] {
@@ -91,5 +110,39 @@ export class JobOverviewListComponent {
 
   public clickNode(node: NodesItemCorrect): void {
     this.nodeClick.emit(node);
+  }
+
+  public clickScaleUp(node: NodesItemCorrect): void {
+    let currentDesiredParallelism = this.desiredParallelism.get(node.id);
+    if (currentDesiredParallelism == undefined) {
+      currentDesiredParallelism = node.parallelism;
+    }
+    const newDesiredParallelism = currentDesiredParallelism + 1;
+    this.adjustDesiredParallelism(node, newDesiredParallelism);
+  }
+
+  public clickScaleDown(node: NodesItemCorrect): void {
+    let currentDesiredParallelism = this.desiredParallelism.get(node.id);
+    if (currentDesiredParallelism == undefined) {
+      currentDesiredParallelism = node.parallelism;
+    }
+    const newDesiredParallelism = Math.max(1, currentDesiredParallelism - 1);
+    this.adjustDesiredParallelism(node, newDesiredParallelism);
+  }
+
+  private adjustDesiredParallelism(node: NodesItemCorrect, newDesiredParallelism: number): void {
+    if (newDesiredParallelism == node.parallelism) {
+      this.desiredParallelism.delete(node.id);
+    } else {
+      this.desiredParallelism.set(node.id, newDesiredParallelism);
+    }
+    if (this.rescaleTimeoutId != undefined) {
+      window.clearTimeout(this.rescaleTimeoutId);
+    }
+    this.rescaleTimeoutId = window.setTimeout(() => {
+      if (this.desiredParallelism.size > 0) {
+        this.rescale.emit(this.desiredParallelism);
+      }
+    }, rescaleTimeout);
   }
 }
