@@ -19,7 +19,6 @@
 package org.apache.flink.docs.rest;
 
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.annotation.docs.Documentation;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -124,7 +123,7 @@ public class OpenApiSpecGenerator {
         List<MessageHeaders> specs =
                 restEndpoint.getSpecs().stream()
                         .filter(spec -> spec.getSupportedAPIVersions().contains(apiVersion))
-                        .filter(OpenApiSpecGenerator::shouldBeDocumented)
+                        .filter(ApiGeneratorUtils::shouldBeDocumented)
                         .collect(Collectors.toList());
         final Set<String> usedOperationIds = new HashSet<>();
         specs.forEach(spec -> add(spec, openApi, usedOperationIds));
@@ -170,10 +169,6 @@ public class OpenApiSpecGenerator {
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(entry -> sortedSchemas.put(entry.getKey(), entry.getValue()));
         components.setSchemas(sortedSchemas);
-    }
-
-    private static boolean shouldBeDocumented(MessageHeaders spec) {
-        return spec.getClass().getAnnotation(Documentation.ExcludeFromDocumentation.class) == null;
     }
 
     private static void setInfo(
@@ -452,7 +447,26 @@ public class OpenApiSpecGenerator {
     }
 
     private static Schema<?> getSchema(Type type) {
-        return modelConverterContext.resolve(new AnnotatedType(type).resolveAsRef(true));
+        final AnnotatedType annotatedType = new AnnotatedType(type).resolveAsRef(true);
+        final Schema<?> schema = modelConverterContext.resolve(annotatedType);
+        if (type instanceof Class<?>) {
+            final Class<?> clazz = (Class<?>) type;
+            ApiGeneratorUtils.findAdditionalFieldType(clazz)
+                    .map(OpenApiSpecGenerator::getSchema)
+                    .ifPresent(
+                            additionalPropertiesSchema -> {
+                                // We can not reuse the schema instance returned by the converter
+                                // above, because it's a different instance than the resolver has
+                                // defined, so we wouldn't see the changes later when populating
+                                // OpenAPI components.
+                                final Schema<?> definedModel =
+                                        modelConverterContext
+                                                .getDefinedModels()
+                                                .get(clazz.getSimpleName());
+                                definedModel.setAdditionalProperties(additionalPropertiesSchema);
+                            });
+        }
+        return schema;
     }
 
     private static PathItem.HttpMethod convert(HttpMethodWrapper wrapper) {

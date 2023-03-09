@@ -19,19 +19,23 @@
 package org.apache.flink.docs.rest;
 
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.docs.rest.data.TestAdditionalFieldsMessageHeaders;
 import org.apache.flink.docs.rest.data.TestEmptyMessageHeaders;
 import org.apache.flink.docs.rest.data.TestExcludeMessageHeaders;
 import org.apache.flink.runtime.rest.handler.RestHandlerSpecification;
 import org.apache.flink.runtime.rest.util.DocumentingRestEndpoint;
 import org.apache.flink.runtime.rest.versioning.RuntimeRestAPIVersion;
-import org.apache.flink.util.FileUtils;
 
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelInboundHandler;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -42,29 +46,23 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 class OpenApiSpecGeneratorTest {
 
     @Test
-    void testTitle() throws Exception {
+    void testTitle(@TempDir Path tmpDir) throws Exception {
         final String title = "Funky title";
 
-        File file = File.createTempFile("rest_v0_", ".html");
+        final Path file = tmpDir.resolve("openapi_spec.yaml");
         OpenApiSpecGenerator.createDocumentationFile(
-                title,
-                new TestExcludeDocumentingRestEndpoint(),
-                RuntimeRestAPIVersion.V0,
-                file.toPath());
-        String actual = FileUtils.readFile(file, "UTF-8");
+                title, new TestExcludeDocumentingRestEndpoint(), RuntimeRestAPIVersion.V0, file);
+        final String actual = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
 
         assertThat(actual).contains("title: " + title);
     }
 
     @Test
-    void testExcludeFromDocumentation() throws Exception {
-        File file = File.createTempFile("rest_v0_", ".html");
+    void testExcludeFromDocumentation(@TempDir Path tmpDir) throws Exception {
+        final Path file = tmpDir.resolve("openapi_spec.yaml");
         OpenApiSpecGenerator.createDocumentationFile(
-                "title",
-                new TestExcludeDocumentingRestEndpoint(),
-                RuntimeRestAPIVersion.V0,
-                file.toPath());
-        String actual = FileUtils.readFile(file, "UTF-8");
+                "title", new TestExcludeDocumentingRestEndpoint(), RuntimeRestAPIVersion.V0, file);
+        final String actual = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
 
         assertThat(actual).contains("/test/empty1");
         assertThat(actual).contains("This is a testing REST API.");
@@ -107,15 +105,15 @@ class OpenApiSpecGeneratorTest {
     }
 
     @Test
-    void testDuplicateOperationIdsAreRejected() throws Exception {
-        File file = File.createTempFile("rest_v0_", ".html");
+    void testDuplicateOperationIdsAreRejected(@TempDir Path tmpDir) {
+        final Path file = tmpDir.resolve("openapi_spec.yaml");
         assertThatThrownBy(
                         () ->
                                 OpenApiSpecGenerator.createDocumentationFile(
                                         "title",
                                         new TestDuplicateOperationIdDocumentingRestEndpoint(),
                                         RuntimeRestAPIVersion.V0,
-                                        file.toPath()))
+                                        file))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Duplicate OperationId");
     }
@@ -129,6 +127,30 @@ class OpenApiSpecGeneratorTest {
             return Arrays.asList(
                     Tuple2.of(new TestEmptyMessageHeaders("operation1"), null),
                     Tuple2.of(new TestEmptyMessageHeaders("operation1"), null));
+        }
+    }
+
+    @Test
+    void testAdditionalFields(@TempDir Path tmpDir) throws Exception {
+        final Path file = tmpDir.resolve("openapi_spec.yaml");
+        OpenApiSpecGenerator.createDocumentationFile(
+                "title", new TestAdditionalFieldsRestEndpoint(), RuntimeRestAPIVersion.V0, file);
+        final String actual = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        assertThat(actual)
+                .contains(
+                        "    AdditionalFieldsRequestBody:\n"
+                                + "      type: object\n"
+                                + "      additionalProperties:\n"
+                                + "        type: string");
+    }
+
+    private static class TestAdditionalFieldsRestEndpoint implements DocumentingRestEndpoint {
+
+        @Override
+        public List<Tuple2<RestHandlerSpecification, ChannelInboundHandler>> initializeHandlers(
+                CompletableFuture<String> localAddressFuture) {
+            return Collections.singletonList(
+                    Tuple2.of(new TestAdditionalFieldsMessageHeaders("operation1"), null));
         }
     }
 }
