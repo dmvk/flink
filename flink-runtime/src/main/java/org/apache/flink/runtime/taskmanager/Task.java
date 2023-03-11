@@ -340,6 +340,7 @@ public class Task
                         taskInformation.getMaxNumberOfSubtasks(),
                         executionAttemptID.getSubtaskIndex(),
                         taskInformation.getNumberOfSubtasks(),
+                        taskInformation.getPreviousNumberOfSubtasks(),
                         executionAttemptID.getAttemptNumber(),
                         String.valueOf(slotAllocationId));
 

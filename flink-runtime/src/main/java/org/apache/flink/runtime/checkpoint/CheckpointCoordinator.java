@@ -70,6 +70,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.PriorityQueue;
@@ -1735,6 +1736,21 @@ public class CheckpointCoordinator {
                 VertexFinishedStateChecker vertexFinishedStateChecker =
                         vertexFinishedStateCheckerFactory.apply(tasks, operatorStates);
                 vertexFinishedStateChecker.validateOperatorsFinishedState();
+            }
+
+            for (ExecutionJobVertex task : tasks) {
+                final int previousParallelism =
+                        task.getOperatorIDs().stream()
+                                .map(
+                                        x ->
+                                                x.getUserDefinedOperatorID()
+                                                        .orElseGet(x::getGeneratedOperatorID))
+                                .map(operatorStates::get)
+                                .filter(Objects::nonNull)
+                                .mapToInt(OperatorState::getParallelism)
+                                .max()
+                                .orElse(-1);
+                task.setPreviousParallelism(previousParallelism);
             }
 
             StateAssignmentOperation stateAssignmentOperation =

@@ -317,6 +317,10 @@ public class ExecutionJobVertex
         parallelismInfo.setParallelism(parallelism);
     }
 
+    public void setPreviousParallelism(int previousParallelism) {
+        parallelismInfo.setPreviousParallelism(previousParallelism);
+    }
+
     public JobVertex getJobVertex() {
         return jobVertex;
     }
@@ -421,6 +425,7 @@ public class ExecutionJobVertex
                 jobVertex.getID(),
                 jobVertex.getName(),
                 parallelismInfo.getParallelism(),
+                parallelismInfo.getPreviousParallelism(),
                 parallelismInfo.getMaxParallelism(),
                 jobVertex.getInvokableClassName(),
                 jobVertex.getConfiguration());

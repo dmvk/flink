@@ -41,6 +41,8 @@ public class TaskInformation implements Serializable {
     /** The number of subtasks for this operator. */
     private final int numberOfSubtasks;
 
+    private final int previousNumberOfSubtasks;
+
     /** The maximum parallelism == number of key groups. */
     private final int maxNumberOfSubtasks;
 
@@ -60,6 +62,24 @@ public class TaskInformation implements Serializable {
         this.jobVertexId = Preconditions.checkNotNull(jobVertexId);
         this.taskName = Preconditions.checkNotNull(taskName);
         this.numberOfSubtasks = numberOfSubtasks;
+        this.previousNumberOfSubtasks = -1;
+        this.maxNumberOfSubtasks = maxNumberOfSubtasks;
+        this.invokableClassName = Preconditions.checkNotNull(invokableClassName);
+        this.taskConfiguration = Preconditions.checkNotNull(taskConfiguration);
+    }
+
+    public TaskInformation(
+            JobVertexID jobVertexId,
+            String taskName,
+            int numberOfSubtasks,
+            int previousNumberOfSubtasks,
+            int maxNumberOfSubtasks,
+            String invokableClassName,
+            Configuration taskConfiguration) {
+        this.jobVertexId = Preconditions.checkNotNull(jobVertexId);
+        this.taskName = Preconditions.checkNotNull(taskName);
+        this.numberOfSubtasks = numberOfSubtasks;
+        this.previousNumberOfSubtasks = previousNumberOfSubtasks;
         this.maxNumberOfSubtasks = maxNumberOfSubtasks;
         this.invokableClassName = Preconditions.checkNotNull(invokableClassName);
         this.taskConfiguration = Preconditions.checkNotNull(taskConfiguration);
@@ -75,6 +95,10 @@ public class TaskInformation implements Serializable {
 
     public int getNumberOfSubtasks() {
         return numberOfSubtasks;
+    }
+
+    public int getPreviousNumberOfSubtasks() {
+        return previousNumberOfSubtasks;
     }
 
     public int getMaxNumberOfSubtasks() {

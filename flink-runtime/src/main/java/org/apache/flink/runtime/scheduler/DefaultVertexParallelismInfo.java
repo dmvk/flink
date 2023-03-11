@@ -29,6 +29,7 @@ import java.util.function.Function;
 /** A {@link VertexParallelismInformation} implementation that provides common validation. */
 public class DefaultVertexParallelismInfo implements VertexParallelismInformation {
     private int parallelism;
+    private int previousParallelism = -1;
     private int maxParallelism;
     private final Function<Integer, Optional<String>> rescaleMaxValidator;
 
@@ -85,6 +86,11 @@ public class DefaultVertexParallelismInfo implements VertexParallelismInformatio
     }
 
     @Override
+    public int getPreviousParallelism() {
+        return previousParallelism;
+    }
+
+    @Override
     public int getMaxParallelism() {
         return this.maxParallelism;
     }
@@ -99,6 +105,10 @@ public class DefaultVertexParallelismInfo implements VertexParallelismInformatio
                 this.parallelism == ExecutionConfig.PARALLELISM_DEFAULT,
                 "Vertex's parallelism can be set only if the vertex's parallelism was not decided yet.");
         this.parallelism = parallelism;
+    }
+
+    public void setPreviousParallelism(int previousParallelism) {
+        this.previousParallelism = previousParallelism;
     }
 
     @Override

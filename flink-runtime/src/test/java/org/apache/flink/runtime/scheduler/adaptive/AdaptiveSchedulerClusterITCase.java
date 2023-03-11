@@ -31,6 +31,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.executiongraph.AccessExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
+import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
@@ -44,6 +45,7 @@ import org.apache.flink.runtime.testtasks.OnceBlockingNoOpInvokable;
 import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResource;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
+import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.Before;
@@ -214,6 +216,11 @@ public class AdaptiveSchedulerClusterITCase extends TestLogger {
 
         public CheckpointingNoOpInvokable(Environment environment) {
             super(environment);
+            final ExecutionAttemptID executionAttemptId = environment.getExecutionId();
+            if (executionAttemptId.getAttemptNumber() > 0) {
+                Preconditions.checkState(
+                        environment.getTaskInfo().getPreviousNumberOfParallelSubtasks() > 0);
+            }
         }
 
         @Override

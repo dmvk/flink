@@ -85,6 +85,10 @@ public interface RuntimeContext {
      */
     int getNumberOfParallelSubtasks();
 
+    default int getPreviousNumberOfParallelSubtasks() {
+        return -1;
+    }
+
     /**
      * Gets the number of max-parallelism with which the parallel task runs.
      *

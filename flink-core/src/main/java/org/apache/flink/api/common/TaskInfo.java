@@ -35,6 +35,7 @@ public class TaskInfo {
     private final int maxNumberOfParallelSubtasks;
     private final int indexOfSubtask;
     private final int numberOfParallelSubtasks;
+    private final int previousNumberOfParallelSubtasks;
     private final int attemptNumber;
 
     public TaskInfo(
@@ -48,6 +49,7 @@ public class TaskInfo {
                 maxNumberOfParallelSubtasks,
                 indexOfSubtask,
                 numberOfParallelSubtasks,
+                -1,
                 attemptNumber,
                 "UNKNOWN");
     }
@@ -57,6 +59,7 @@ public class TaskInfo {
             int maxNumberOfParallelSubtasks,
             int indexOfSubtask,
             int numberOfParallelSubtasks,
+            int previousNumberOfParallelSubtasks,
             int attemptNumber,
             String allocationIDAsString) {
 
@@ -75,6 +78,7 @@ public class TaskInfo {
         this.maxNumberOfParallelSubtasks = maxNumberOfParallelSubtasks;
         this.indexOfSubtask = indexOfSubtask;
         this.numberOfParallelSubtasks = numberOfParallelSubtasks;
+        this.previousNumberOfParallelSubtasks = previousNumberOfParallelSubtasks;
         this.attemptNumber = attemptNumber;
         this.taskNameWithSubtasks =
                 taskName
@@ -119,6 +123,10 @@ public class TaskInfo {
      */
     public int getNumberOfParallelSubtasks() {
         return this.numberOfParallelSubtasks;
+    }
+
+    public int getPreviousNumberOfParallelSubtasks() {
+        return this.previousNumberOfParallelSubtasks;
     }
 
     /**

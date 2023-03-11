@@ -30,6 +30,10 @@ public interface VertexParallelismInformation {
      */
     int getParallelism();
 
+    default int getPreviousParallelism() {
+        return -1;
+    }
+
     /**
      * Returns the vertex's max parallelism.
      *
@@ -44,6 +48,10 @@ public interface VertexParallelismInformation {
      * @param parallelism the parallelism for the vertex
      */
     void setParallelism(int parallelism);
+
+    default void setPreviousParallelism(int previousParallelism) {
+        // No-op.
+    }
 
     /**
      * Changes a given vertex's max parallelism property. The caller should first check the validity
