@@ -40,6 +40,13 @@ import org.apache.flink.runtime.rest.util.DocumentingRestEndpoint;
 import org.apache.flink.runtime.rest.versioning.RestAPIVersion;
 import org.apache.flink.runtime.util.EnvironmentInformation;
 import org.apache.flink.runtime.webmonitor.handlers.JarUploadHeaders;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.Version;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.AnnotationIntrospector;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.Module;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.introspect.AnnotatedMember;
+
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.SerializedThrowable;
 import org.apache.flink.util.jackson.JacksonMapperFactory;
@@ -70,7 +77,10 @@ import io.swagger.v3.oas.models.parameters.RequestBody;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
 
+import javax.annotation.Nullable;
+
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
@@ -102,6 +112,7 @@ public class OpenApiSpecGenerator {
         ModelResolver.enumsAsRef = true;
         final ObjectMapper mapper =
                 JacksonMapperFactory.createObjectMapper()
+                        .registerModule(new NullableModule())
                         .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
         modelConverterContext =
                 new ModelConverterContextImpl(
@@ -497,6 +508,41 @@ public class OpenApiSpecGenerator {
                 return PathItem.HttpMethod.PUT;
         }
         throw new IllegalArgumentException("not supported");
+    }
+
+    private static class NullableModule extends Module {
+
+        @Override
+        public String getModuleName() {
+            return "flink-nullable";
+        }
+
+        @Override
+        public Version version() {
+            return Version.unknownVersion();
+        }
+
+        @Override
+        public void setupModule(Module.SetupContext setupContext) {
+            setupContext.appendAnnotationIntrospector(new AnnotationIntrospector() {
+                @Override
+                public Version version() {
+                    return NullableModule.this.version();
+                }
+
+                @Override
+                public Boolean hasRequiredMarker(AnnotatedMember m) {
+                    for (Annotation annotation : m
+                            .getAllAnnotations()
+                            .annotations()) {
+                        if (Nullable.class.isAssignableFrom(annotation.annotationType())) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+            });
+        }
     }
 
     /** A {@link TypeNameResolver} that detects name-clashes between top-level and inner classes. */

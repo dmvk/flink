@@ -233,6 +233,11 @@ components:
         status:
           type: string
     Column:
+      required:
+      - dataType
+      - name
+      - persisted
+      - physical
       type: object
       properties:
         comment:
@@ -260,6 +265,9 @@ components:
       - PRIMARY_KEY
       - UNIQUE_KEY
     DataType:
+      required:
+      - children
+      - logicalType
       type: object
       properties:
         children:
@@ -288,6 +296,11 @@ components:
     Expression:
       type: object
     FetchResultsResponseBody:
+      required:
+      - queryResult
+      - resultKind
+      - resultType
+      - results
       type: object
       properties:
         jobID:
@@ -335,6 +348,10 @@ components:
       pattern: "[0-9a-f]{32}"
       type: string
     LogicalType:
+      required:
+      - children
+      - nullable
+      - typeRoot
       type: object
       properties:
         children:
@@ -392,6 +409,8 @@ components:
         sessionHandle:
           type: string
     OperationHandle:
+      required:
+      - identifier
       type: object
       properties:
         identifier:
@@ -403,6 +422,10 @@ components:
         status:
           type: string
     ResolvedExpression:
+      required:
+      - children
+      - outputDataType
+      - resolvedChildren
       type: object
       properties:
         children:
@@ -416,6 +439,13 @@ components:
           items:
             $ref: '#/components/schemas/ResolvedExpression'
     ResolvedSchema:
+      required:
+      - columnCount
+      - columnDataTypes
+      - columnNames
+      - columns
+      - primaryKeyIndexes
+      - watermarkSpecs
       type: object
       properties:
         columnCount:
@@ -448,6 +478,12 @@ components:
       pattern: "[0-9a-f]{32}"
       type: string
     ResultInfo:
+      required:
+      - columnInfos
+      - data
+      - fieldGetters
+      - resultSchema
+      - rowFormat
       type: object
       properties:
         columnInfos:
@@ -478,6 +514,9 @@ components:
       - PAYLOAD
       - EOS
     RowData:
+      required:
+      - arity
+      - rowKind
       type: object
       properties:
         arity:
@@ -504,6 +543,8 @@ components:
           type: string
           format: binary
     SessionHandle:
+      required:
+      - identifier
       type: object
       properties:
         identifier:
@@ -513,6 +554,11 @@ components:
       pattern: "[0-9a-f]{32}"
       type: string
     UniqueConstraint:
+      required:
+      - columns
+      - enforced
+      - name
+      - type
       type: object
       properties:
         columns:
@@ -526,6 +572,9 @@ components:
         type:
           $ref: '#/components/schemas/ConstraintType'
     WatermarkSpec:
+      required:
+      - rowtimeAttribute
+      - watermarkExpression
       type: object
       properties:
         rowtimeAttribute:

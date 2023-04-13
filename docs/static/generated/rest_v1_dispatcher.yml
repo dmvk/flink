@@ -2090,6 +2090,8 @@ components:
           type: boolean
         web-history:
           type: boolean
+        web-rescale:
+          type: boolean
         web-submit:
           type: boolean
     GarbageCollectorInfo:
@@ -2281,6 +2283,9 @@ components:
           type: integer
           format: int64
     JobConfigInfo:
+      required:
+      - jobId
+      - jobName
       type: object
       properties:
         executionConfigInfo:
@@ -2449,6 +2454,12 @@ components:
       additionalProperties:
         $ref: '#/components/schemas/JobVertexResourceRequirements'
     JobResult:
+      required:
+      - accumulatorResults
+      - applicationStatus
+      - jobId
+      - netRuntime
+      - success
       type: object
       properties:
         accumulatorResults:
@@ -2641,6 +2652,8 @@ components:
         value:
           type: string
     MetricCollectionResponseBody:
+      required:
+      - metrics
       type: object
       properties:
         metrics:
@@ -2803,6 +2816,8 @@ components:
           type: string
           format: binary
     SerializedValueOptionalFailureObject:
+      required:
+      - byteArray
       type: object
       properties:
         byteArray:
