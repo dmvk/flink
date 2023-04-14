@@ -168,6 +168,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -271,6 +272,13 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     private final TaskExecutorPartitionTracker partitionTracker;
 
     private final DelegationTokenReceiverRepository delegationTokenReceiverRepository;
+
+    /**
+     * Keep track of pending {@link TaskExecutionState} updates, to enforce per {@link
+     * ExecutionAttemptID} ordering guarantees.
+     */
+    private Map<ExecutionAttemptID, CompletableFuture<?>> pendingTaskExecutionStateUpdates =
+            new HashMap<>();
 
     // --------- resource manager --------
 
@@ -1939,15 +1947,31 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     private void updateTaskExecutionState(
             final JobMasterGateway jobMasterGateway, final TaskExecutionState taskExecutionState) {
+        getMainThreadExecutor().assertRunningInMainThread();
         final ExecutionAttemptID executionAttemptID = taskExecutionState.getID();
-
-        CompletableFuture<Acknowledge> futureAcknowledge =
-                jobMasterGateway.updateTaskExecutionState(taskExecutionState);
-
-        futureAcknowledge.whenCompleteAsync(
+        final CompletableFuture<?> updateFuture =
+                pendingTaskExecutionStateUpdates.compute(
+                        executionAttemptID,
+                        (key, previousFuture) -> {
+                            if (previousFuture == null) {
+                                return jobMasterGateway.updateTaskExecutionState(
+                                        taskExecutionState);
+                            }
+                            return FutureUtils.composeAfterwards(
+                                    previousFuture,
+                                    () ->
+                                            jobMasterGateway.updateTaskExecutionState(
+                                                    taskExecutionState));
+                        });
+        updateFuture.whenCompleteAsync(
                 (ack, throwable) -> {
-                    if (throwable != null) {
-                        failTask(executionAttemptID, throwable);
+                    final CompletableFuture<?> lastFuture =
+                            pendingTaskExecutionStateUpdates.get(executionAttemptID);
+                    if (lastFuture == updateFuture) {
+                        pendingTaskExecutionStateUpdates.remove(executionAttemptID);
+                        if (throwable != null) {
+                            failTask(executionAttemptID, throwable);
+                        }
                     }
                 },
                 getMainThreadExecutor());
@@ -2242,6 +2266,23 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         return CompletableFuture.completedFuture(transientBlobKey);
     }
 
+    private void runAsyncAndWait(Runnable runnable) {
+        final CountDownLatch done = new CountDownLatch(1);
+        runAsync(
+                () -> {
+                    try {
+                        runnable.run();
+                    } finally {
+                        done.countDown();
+                    }
+                });
+        try {
+            done.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     // ------------------------------------------------------------------------
     //  Properties
     // ------------------------------------------------------------------------
@@ -2477,7 +2518,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                                 unregisterTaskAndNotifyFinalState(
                                         jobMasterGateway, taskExecutionState.getID()));
             } else {
-                TaskExecutor.this.updateTaskExecutionState(jobMasterGateway, taskExecutionState);
+                runAsyncAndWait(
+                        () -> {
+                            TaskExecutor.this.updateTaskExecutionState(
+                                    jobMasterGateway, taskExecutionState);
+                        });
             }
         }
     }
