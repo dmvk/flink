@@ -20,6 +20,7 @@ package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
@@ -37,6 +38,8 @@ import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -71,6 +74,7 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
     private final PriorityQueueSetFactory priorityQueueSetFactory;
     private final ProcessingTimeService processingTimeService;
     private final StreamTaskCancellationContext cancellationContext;
+    @Nullable private final MailboxExecutor mailboxExecutor;
 
     private final Map<String, InternalTimerServiceImpl<K, ?>> timerServices;
 
@@ -79,13 +83,15 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
             KeyContext keyContext,
             PriorityQueueSetFactory priorityQueueSetFactory,
             ProcessingTimeService processingTimeService,
-            StreamTaskCancellationContext cancellationContext) {
+            StreamTaskCancellationContext cancellationContext,
+            @Nullable MailboxExecutor mailboxExecutor) {
 
         this.localKeyGroupRange = Preconditions.checkNotNull(localKeyGroupRange);
         this.priorityQueueSetFactory = Preconditions.checkNotNull(priorityQueueSetFactory);
         this.keyContext = Preconditions.checkNotNull(keyContext);
         this.processingTimeService = Preconditions.checkNotNull(processingTimeService);
         this.cancellationContext = cancellationContext;
+        this.mailboxExecutor = mailboxExecutor;
 
         this.timerServices = new HashMap<>();
     }
@@ -101,7 +107,8 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
             KeyContext keyContext,
             ProcessingTimeService processingTimeService,
             Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates,
-            StreamTaskCancellationContext cancellationContext)
+            StreamTaskCancellationContext cancellationContext,
+            @Nullable MailboxExecutor mailboxExecutor)
             throws Exception {
         final KeyGroupRange keyGroupRange = keyedStateBackend.getKeyGroupRange();
 
@@ -111,7 +118,8 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
                         keyContext,
                         keyedStateBackend,
                         processingTimeService,
-                        cancellationContext);
+                        cancellationContext,
+                        mailboxExecutor);
 
         // and then initialize the timer services
         for (KeyGroupStatePartitionStreamProvider streamProvider : rawKeyedStates) {
@@ -166,7 +174,8 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
                             createTimerPriorityQueue(
                                     PROCESSING_TIMER_PREFIX + name, timerSerializer),
                             createTimerPriorityQueue(EVENT_TIMER_PREFIX + name, timerSerializer),
-                            cancellationContext);
+                            cancellationContext,
+                            mailboxExecutor);
 
             timerServices.put(name, timerService);
         }

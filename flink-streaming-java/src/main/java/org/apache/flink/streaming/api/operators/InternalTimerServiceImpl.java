@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
 import org.apache.flink.runtime.state.InternalPriorityQueue;
@@ -31,6 +32,11 @@ import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.function.BiConsumerWithException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -42,6 +48,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** {@link InternalTimerService} that stores timers on the Java heap. */
 public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
+
+    private static final Logger LOG = LoggerFactory.getLogger(InternalTimerServiceImpl.class);
 
     private final ProcessingTimeService processingTimeService;
 
@@ -57,6 +65,8 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
 
     /** Context that allows us to stop firing timers if the containing task has been cancelled. */
     private final StreamTaskCancellationContext cancellationContext;
+
+    @Nullable private final MailboxExecutor mailboxExecutor;
 
     /** Information concerning the local key-group range. */
     private final KeyGroupRange localKeyGroupRange;
@@ -92,13 +102,15 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
     /** The restored timers snapshot, if any. */
     private InternalTimersSnapshot<K, N> restoredTimersSnapshot;
 
+    @VisibleForTesting
     InternalTimerServiceImpl(
             KeyGroupRange localKeyGroupRange,
             KeyContext keyContext,
             ProcessingTimeService processingTimeService,
             KeyGroupedInternalPriorityQueue<TimerHeapInternalTimer<K, N>> processingTimeTimersQueue,
             KeyGroupedInternalPriorityQueue<TimerHeapInternalTimer<K, N>> eventTimeTimersQueue,
-            StreamTaskCancellationContext cancellationContext) {
+            StreamTaskCancellationContext cancellationContext,
+            @Nullable MailboxExecutor mailboxExecutor) {
 
         this.keyContext = checkNotNull(keyContext);
         this.processingTimeService = checkNotNull(processingTimeService);
@@ -106,6 +118,7 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
         this.processingTimeTimersQueue = checkNotNull(processingTimeTimersQueue);
         this.eventTimeTimersQueue = checkNotNull(eventTimeTimersQueue);
         this.cancellationContext = cancellationContext;
+        this.mailboxExecutor = mailboxExecutor;
 
         // find the starting index of the local key-group range
         int startIdx = Integer.MAX_VALUE;
@@ -307,9 +320,27 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
         while ((timer = eventTimeTimersQueue.peek()) != null
                 && timer.getTimestamp() <= time
                 && !cancellationContext.isCancelled()) {
+            final long startTime = System.currentTimeMillis();
             keyContext.setCurrentKey(timer.getKey());
             eventTimeTimersQueue.poll();
             triggerTarget.onEventTime(timer);
+
+            if (mailboxExecutor != null) {
+                final long yieldStartTime = System.currentTimeMillis();
+
+                boolean yielded = false;
+                while (mailboxExecutor.tryYield()) {
+                    yielded = true;
+                }
+
+                if (yielded) {
+                    LOG.info(
+                            "Yielded to mailbox ({}) after processing timer for {}ms. The mailbox processing took {}ms.",
+                            System.identityHashCode(mailboxExecutor),
+                            yieldStartTime - startTime,
+                            System.currentTimeMillis() - yieldStartTime);
+                }
+            }
         }
     }
 

@@ -18,6 +18,7 @@
 
 package org.apache.flink.streaming.api.operators.sorted.state;
 
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.runtime.state.CheckpointableKeyedStateBackend;
 import org.apache.flink.runtime.state.KeyGroupStatePartitionStreamProvider;
@@ -31,6 +32,8 @@ import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.StreamTaskCancellationContext;
 import org.apache.flink.util.WrappingRuntimeException;
+
+import javax.annotation.Nullable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -90,7 +93,8 @@ public class BatchExecutionInternalTimeServiceManager<K>
             KeyContext keyContext, // the operator
             ProcessingTimeService processingTimeService,
             Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates,
-            StreamTaskCancellationContext cancellationContext) {
+            StreamTaskCancellationContext cancellationContext,
+            @Nullable MailboxExecutor mailboxExecutor) {
         checkState(
                 keyedStatedBackend instanceof BatchExecutionKeyedStateBackend,
                 "Batch execution specific time service can work only with BatchExecutionKeyedStateBackend");

@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.state.KeyedStateStore;
 import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.core.fs.CloseableRegistry;
@@ -63,6 +64,8 @@ import org.apache.flink.streaming.runtime.tasks.StreamTaskCancellationContext;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -193,8 +196,8 @@ public class StateInitializationContextImplTest {
                                     KeyContext keyContext,
                                     ProcessingTimeService processingTimeService,
                                     Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates,
-                                    StreamTaskCancellationContext cancellationContext)
-                                    throws Exception {
+                                    StreamTaskCancellationContext cancellationContext,
+                                    @Nullable MailboxExecutor mailboxExecutor) {
                                 // We do not initialize a timer service manager here, because it
                                 // would already consume the raw keyed
                                 // state as part of initialization. For the purpose of this test, we
@@ -203,7 +206,8 @@ public class StateInitializationContextImplTest {
                                 return null;
                             }
                         },
-                        StreamTaskCancellationContext.alwaysRunning());
+                        StreamTaskCancellationContext.alwaysRunning(),
+                        null);
 
         AbstractStreamOperator<?> mockOperator = mock(AbstractStreamOperator.class);
         when(mockOperator.getOperatorID()).thenReturn(operatorID);

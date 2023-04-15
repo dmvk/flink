@@ -1102,7 +1102,8 @@ public class InternalTimerServiceImplTest {
                 createTimerQueue(
                         "__test_processing_timers", timerSerializer, priorityQueueSetFactory),
                 createTimerQueue("__test_event_timers", timerSerializer, priorityQueueSetFactory),
-                StreamTaskCancellationContext.alwaysRunning());
+                StreamTaskCancellationContext.alwaysRunning(),
+                null);
     }
 
     private static <K, N>

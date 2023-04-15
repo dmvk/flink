@@ -21,6 +21,7 @@ package org.apache.flink.streaming.util;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.configuration.Configuration;
@@ -83,6 +84,8 @@ import org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailboxImpl;
 import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.util.OutputTag;
 import org.apache.flink.util.Preconditions;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -151,7 +154,8 @@ public class AbstractStreamOperatorTestHarness<OUT> implements AutoCloseable {
                         KeyContext keyContext,
                         ProcessingTimeService processingTimeService,
                         Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates,
-                        StreamTaskCancellationContext cancellationContext)
+                        StreamTaskCancellationContext cancellationContext,
+                        @Nullable MailboxExecutor mailboxExecutor)
                         throws Exception {
                     InternalTimeServiceManagerImpl<K> typedTimeServiceManager =
                             InternalTimeServiceManagerImpl.create(
@@ -160,7 +164,8 @@ public class AbstractStreamOperatorTestHarness<OUT> implements AutoCloseable {
                                     keyContext,
                                     processingTimeService,
                                     rawKeyedStates,
-                                    cancellationContext);
+                                    cancellationContext,
+                                    mailboxExecutor);
                     timeServiceManager = typedTimeServiceManager;
                     return typedTimeServiceManager;
                 }
@@ -338,7 +343,8 @@ public class AbstractStreamOperatorTestHarness<OUT> implements AutoCloseable {
                 stateBackend,
                 ttlTimeProvider,
                 timeServiceManagerProvider,
-                StreamTaskCancellationContext.alwaysRunning());
+                StreamTaskCancellationContext.alwaysRunning(),
+                env.getMainMailboxExecutor());
     }
 
     public void setStateBackend(StateBackend stateBackend) {

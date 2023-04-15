@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.core.fs.CloseableRegistry;
@@ -60,6 +61,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.io.Closeable;
 import java.util.Collection;
@@ -319,12 +321,13 @@ public class StreamTaskStateInitializerImplTest {
                                 KeyContext keyContext,
                                 ProcessingTimeService processingTimeService,
                                 Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates,
-                                StreamTaskCancellationContext cancellationContext)
-                                throws Exception {
+                                StreamTaskCancellationContext cancellationContext,
+                                @Nullable MailboxExecutor mailboxExecutor) {
                             return null;
                         }
                     },
-                    StreamTaskCancellationContext.alwaysRunning());
+                    StreamTaskCancellationContext.alwaysRunning(),
+                    null);
         }
     }
 }

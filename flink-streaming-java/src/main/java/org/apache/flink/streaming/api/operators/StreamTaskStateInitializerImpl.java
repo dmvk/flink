@@ -20,6 +20,7 @@ package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.TaskInfo;
+import org.apache.flink.api.common.operators.MailboxExecutor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.CloseableRegistry;
@@ -99,6 +100,8 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 
     private final StreamTaskCancellationContext cancellationContext;
 
+    @Nullable private final MailboxExecutor mailboxExecutor;
+
     public StreamTaskStateInitializerImpl(Environment environment, StateBackend stateBackend) {
 
         this(
@@ -106,7 +109,8 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
                 stateBackend,
                 TtlTimeProvider.DEFAULT,
                 InternalTimeServiceManagerImpl::create,
-                StreamTaskCancellationContext.alwaysRunning());
+                StreamTaskCancellationContext.alwaysRunning(),
+                null);
     }
 
     @VisibleForTesting
@@ -115,14 +119,16 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
             StateBackend stateBackend,
             TtlTimeProvider ttlTimeProvider,
             InternalTimeServiceManager.Provider timeServiceManagerProvider,
-            StreamTaskCancellationContext cancellationContext) {
+            StreamTaskCancellationContext cancellationContext,
+            @Nullable MailboxExecutor mailboxExecutor) {
 
         this.environment = environment;
         this.taskStateManager = Preconditions.checkNotNull(environment.getTaskStateManager());
         this.stateBackend = Preconditions.checkNotNull(stateBackend);
         this.ttlTimeProvider = ttlTimeProvider;
         this.timeServiceManagerProvider = Preconditions.checkNotNull(timeServiceManagerProvider);
-        this.cancellationContext = cancellationContext;
+        this.cancellationContext = Preconditions.checkNotNull(cancellationContext);
+        this.mailboxExecutor = mailboxExecutor;
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -208,6 +214,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
                                 ? rawKeyedStateInputs
                                 : Collections.emptyList();
 
+                // todo take mailbox executor from environment
                 timeServiceManager =
                         timeServiceManagerProvider.create(
                                 keyedStatedBackend,
@@ -215,7 +222,8 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
                                 keyContext,
                                 processingTimeService,
                                 restoredRawKeyedStateTimers,
-                                cancellationContext);
+                                cancellationContext,
+                                mailboxExecutor);
             } else {
                 timeServiceManager = null;
             }
