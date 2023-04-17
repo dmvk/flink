@@ -61,6 +61,12 @@ public class StreamOperatorFactoryUtil {
             ((YieldingOperatorFactory<?>) operatorFactory).setMailboxExecutor(mailboxExecutor);
         }
 
+        if (operatorFactory instanceof YieldingTimersOperatorFactory) {
+            final YieldingTimersOperatorFactory<OUT> cast =
+                    (YieldingTimersOperatorFactory<OUT>) operatorFactory;
+            output = cast.wrapOutput(output, mailboxExecutor);
+        }
+
         final Supplier<ProcessingTimeService> processingTimeServiceFactory =
                 () ->
                         containingTask

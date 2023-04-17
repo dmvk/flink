@@ -300,17 +300,22 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
     }
 
     public void advanceWatermark(long time) throws Exception {
-        currentWatermark = time;
+        while (time > currentWatermark && !cancellationContext.isCancelled()) {
+            tryAdvanceWatermark(time);
+        }
+    }
 
-        InternalTimer<K, N> timer;
-
-        while ((timer = eventTimeTimersQueue.peek()) != null
-                && timer.getTimestamp() <= time
-                && !cancellationContext.isCancelled()) {
+    public long tryAdvanceWatermark(long time) throws Exception {
+        final InternalTimer<K, N> timer;
+        if ((timer = eventTimeTimersQueue.peek()) != null && timer.getTimestamp() <= time) {
+            currentWatermark = timer.getTimestamp() - 1;
             keyContext.setCurrentKey(timer.getKey());
             eventTimeTimersQueue.poll();
             triggerTarget.onEventTime(timer);
+        } else {
+            currentWatermark = time;
         }
+        return currentWatermark;
     }
 
     /**

@@ -34,6 +34,7 @@ import org.apache.flink.util.WrappingRuntimeException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
@@ -76,6 +77,12 @@ public class BatchExecutionInternalTimeServiceManager<K>
         if (watermark.getTimestamp() == Long.MAX_VALUE) {
             keySelected(null);
         }
+    }
+
+    @Override
+    public Optional<Watermark> tryAdvanceWatermark(Watermark watermark) {
+        advanceWatermark(watermark);
+        return Optional.of(watermark);
     }
 
     @Override

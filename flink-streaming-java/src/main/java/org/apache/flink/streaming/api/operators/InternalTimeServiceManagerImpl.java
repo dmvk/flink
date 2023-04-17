@@ -43,6 +43,7 @@ import java.io.InputStream;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -188,6 +189,18 @@ public class InternalTimeServiceManagerImpl<K> implements InternalTimeServiceMan
         for (InternalTimerServiceImpl<?, ?> service : timerServices.values()) {
             service.advanceWatermark(watermark.getTimestamp());
         }
+    }
+
+    @Override
+    public Optional<Watermark> tryAdvanceWatermark(Watermark watermark) throws Exception {
+        for (InternalTimerServiceImpl<?, ?> service : timerServices.values()) {
+            if (service.currentWatermark() >= watermark.getTimestamp()) {
+                continue;
+            }
+            return Optional.of(
+                    new Watermark(service.tryAdvanceWatermark(watermark.getTimestamp())));
+        }
+        return Optional.empty();
     }
 
     //////////////////				Fault Tolerance Methods				///////////////////

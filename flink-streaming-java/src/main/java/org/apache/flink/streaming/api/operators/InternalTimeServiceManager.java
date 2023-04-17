@@ -28,6 +28,7 @@ import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.StreamTaskCancellationContext;
 
 import java.io.Serializable;
+import java.util.Optional;
 
 /**
  * An entity keeping all the time-related services.
@@ -55,6 +56,8 @@ public interface InternalTimeServiceManager<K> {
      * potentially firing event time timers.
      */
     void advanceWatermark(Watermark watermark) throws Exception;
+
+    Optional<Watermark> tryAdvanceWatermark(Watermark watermark) throws Exception;
 
     /**
      * Snapshots the timers to raw keyed state.

@@ -53,11 +53,14 @@ import org.apache.flink.runtime.state.internal.InternalListState;
 import org.apache.flink.runtime.state.internal.InternalMergingState;
 import org.apache.flink.streaming.api.operators.AbstractUdfStreamOperator;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
+import org.apache.flink.streaming.api.operators.InternalTimeServiceManager;
 import org.apache.flink.streaming.api.operators.InternalTimer;
 import org.apache.flink.streaming.api.operators.InternalTimerService;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.TimestampedCollector;
 import org.apache.flink.streaming.api.operators.Triggerable;
+import org.apache.flink.streaming.api.operators.WindowOperatorFactory;
+import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.api.windowing.assigners.MergingWindowAssigner;
 import org.apache.flink.streaming.api.windowing.assigners.WindowAssigner;
 import org.apache.flink.streaming.api.windowing.triggers.Trigger;
@@ -66,6 +69,7 @@ import org.apache.flink.streaming.api.windowing.windows.Window;
 import org.apache.flink.streaming.runtime.operators.windowing.functions.InternalWindowFunction;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
+import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 import java.util.Collection;
@@ -482,6 +486,15 @@ public class WindowOperator<K, IN, ACC, OUT, W extends Window>
             // need to make sure to update the merging state in state
             mergingWindows.persist();
         }
+    }
+
+    @Override
+    public void processWatermark(Watermark mark) throws Exception {
+        Preconditions.checkState(getTimeServiceManager().isPresent());
+        final WindowOperatorFactory.WatermarkHoldingOutput<OUT> castOutput =
+                (WindowOperatorFactory.WatermarkHoldingOutput<OUT>) output;
+        final InternalTimeServiceManager<?> timerServiceManager = getTimeServiceManager().get();
+        castOutput.emitWatermarkInTheMailbox(mark, timerServiceManager::tryAdvanceWatermark);
     }
 
     @Override

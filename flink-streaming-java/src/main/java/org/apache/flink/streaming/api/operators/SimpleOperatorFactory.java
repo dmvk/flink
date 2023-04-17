@@ -24,6 +24,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.InputTypeConfigurable;
 import org.apache.flink.streaming.api.functions.sink.OutputFormatSinkFunction;
 import org.apache.flink.streaming.api.functions.source.InputFormatSourceFunction;
+import org.apache.flink.streaming.runtime.operators.windowing.WindowOperator;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -54,6 +55,8 @@ public class SimpleOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                                     ((UserFunctionProvider<Function>) operator).getUserFunction())
                             .getFormat()),
                     operator);
+        } else if (operator instanceof WindowOperator) {
+            return new WindowOperatorFactory<>((WindowOperator<?, ?, ?, OUT, ?>) operator);
         } else if (operator instanceof AbstractUdfStreamOperator) {
             return new SimpleUdfStreamOperatorFactory<OUT>((AbstractUdfStreamOperator) operator);
         } else {
