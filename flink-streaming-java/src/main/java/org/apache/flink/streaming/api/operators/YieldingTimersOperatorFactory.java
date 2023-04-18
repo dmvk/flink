@@ -29,5 +29,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 public interface YieldingTimersOperatorFactory<OUT> extends StreamOperatorFactory<OUT> {
 
     Output<StreamRecord<OUT>> wrapOutput(
-            Output<StreamRecord<OUT>> output, MailboxExecutor mailboxExecutor);
+            Output<StreamRecord<OUT>> output,
+            MailboxExecutor taskMailboxExecutor,
+            MailboxExecutor mainMailboxExecutor);
 }

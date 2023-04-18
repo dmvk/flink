@@ -17,11 +17,16 @@ public class WindowOperatorFactory<OUT> extends SimpleUdfStreamOperatorFactory<O
     public static class WatermarkHoldingOutput<OUT> implements Output<OUT> {
 
         private final Output<OUT> delegate;
-        private final MailboxExecutor mailboxExecutor;
+        private final MailboxExecutor taskMailboxExecutor;
+        private final MailboxExecutor mainMailboxExecutor;
 
-        private WatermarkHoldingOutput(Output<OUT> delegate, MailboxExecutor mailboxExecutor) {
+        private WatermarkHoldingOutput(
+                Output<OUT> delegate,
+                MailboxExecutor taskMailboxExecutor,
+                MailboxExecutor mainMailboxExecutor) {
             this.delegate = delegate;
-            this.mailboxExecutor = mailboxExecutor;
+            this.taskMailboxExecutor = taskMailboxExecutor;
+            this.mainMailboxExecutor = mainMailboxExecutor;
         }
 
         @Override
@@ -42,11 +47,14 @@ public class WindowOperatorFactory<OUT> extends SimpleUdfStreamOperatorFactory<O
         public void emitWatermarkInTheMailbox(
                 Watermark mark,
                 FunctionWithException<Watermark, Optional<Watermark>, Exception> advanceWatermark) {
-            mailboxExecutor.execute(
+            taskMailboxExecutor.execute(
                     () -> {
-                        final Optional<Watermark> maybeProgressedWatermark =
-                                advanceWatermark.apply(mark);
-                        if (maybeProgressedWatermark.isPresent()) {
+                        Optional<Watermark> maybeProgressedWatermark;
+                        while ((maybeProgressedWatermark = advanceWatermark.apply(mark))
+                                .isPresent()) {
+                            while (mainMailboxExecutor.tryYield()) {
+                                // No-op.
+                            }
                             delegate.emitWatermark(maybeProgressedWatermark.get());
                             emitWatermarkInTheMailbox(mark, advanceWatermark);
                         }
@@ -76,7 +84,9 @@ public class WindowOperatorFactory<OUT> extends SimpleUdfStreamOperatorFactory<O
 
     @Override
     public Output<StreamRecord<OUT>> wrapOutput(
-            Output<StreamRecord<OUT>> output, MailboxExecutor mailboxExecutor) {
-        return new WatermarkHoldingOutput<>(output, mailboxExecutor);
+            Output<StreamRecord<OUT>> output,
+            MailboxExecutor taskMailboxExecutor,
+            MailboxExecutor mainMailboxExecutor) {
+        return new WatermarkHoldingOutput<>(output, taskMailboxExecutor, mainMailboxExecutor);
     }
 }

@@ -25,6 +25,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeServiceAware;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
+import org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailbox;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -64,7 +65,13 @@ public class StreamOperatorFactoryUtil {
         if (operatorFactory instanceof YieldingTimersOperatorFactory) {
             final YieldingTimersOperatorFactory<OUT> cast =
                     (YieldingTimersOperatorFactory<OUT>) operatorFactory;
-            output = cast.wrapOutput(output, mailboxExecutor);
+            output =
+                    cast.wrapOutput(
+                            output,
+                            mailboxExecutor,
+                            containingTask
+                                    .getMailboxExecutorFactory()
+                                    .createExecutor(TaskMailbox.MIN_PRIORITY));
         }
 
         final Supplier<ProcessingTimeService> processingTimeServiceFactory =
