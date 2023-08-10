@@ -25,15 +25,87 @@ under the License.
 
 # Elastic Scaling
 
-Apache Flink allows you to rescale your jobs. You can do this manually by stopping the job and restarting from the savepoint created during shutdown with a different parallelism.
+Apache Flink allows you to rescale your jobs in case the characteristics of the workload change. You
+can do this old-fashioned way by manually stopping the job and restarting it from the savepoint
+created during shutdown with adjusted parallelism. Alternatively, you can leverage mechanics that
+allow Flink to automatically "adapt" to changes in requirements for compute resources needed to
+execute the workload efficiently. We call this **resource elasticity**.
 
-This page describes options where Flink automatically adjusts the parallelism instead.
+The resource elasticity is unlocked thanks to the new generation of schedulers for both streaming
+and batch - the [AdaptiveScheduler](#adaptive-scheduler) and the [AdaptiveBatchScheduler](#adaptive-batch-scheduler).
 
-## Reactive Mode
+The main difference between streaming and batch execution, when resource elasticity is concerned,
+is how Flink gathers resource requirements for the job. While for streaming, Flink needs to rely on
+external input because the workload changes over time and is hard to predict, for Batch execution,
+it can automatically compute the requirements on a per-stage basis by looking at its input because
+the input is bounded and therefore, predictable.
+
+
+## Adaptive Scheduler
 
 {{< hint info >}}
-Reactive mode is an MVP ("minimum viable product") feature. The Flink community is actively looking for feedback by users through our mailing lists. Please check the limitations listed on this page.
+Adaptive Scheduler can be used for streaming jobs only. If you're looking for resources elasticity
+for the batch jobs, please scroll down to the [Adaptive Batch Scheduler](#adaptive-batch-scheduler).
 {{< /hint >}}
+
+The Adaptive Scheduler can adjust the parallelism of a job based on available resources (in terms of
+Task Slots).
+
+The main idea is that the job declares desired resources it wants to acquire and the scheduler
+becomes oblivious to the actual resources it receives.
+
+It will automatically reduce the parallelism if not enough slots are available to run the job with
+the initially configured parallelism, be it due to insufficient resources at submission or
+TaskManager outages during the job execution. The job will return to the configured parallelism if
+new slots are available.
+
+
+
+
+In Reactive Mode (see above) the configured parallelism is ignored and treated as if it was set to infinity, letting the job always use as many resources as possible.
+You can also use Adaptive Scheduler without Reactive Mode, but there are some practical limitations:
+- If you are using Adaptive Scheduler on a session cluster, there are no guarantees regarding the distribution of slots between multiple running jobs in the same session.
+
+One benefit of the Adaptive Scheduler over the default scheduler is that it can handle TaskManager losses gracefully, since it would just scale down in these cases.
+
+### How it works
+
+Internally the Adaptive Scheduler is implemented as a state machine. The state machine transitions are triggered by events such as a new slot becoming available, or a TaskManager failure. The state machine is depicted below:
+
+{{< mermaid >}}
+stateDiagram-v2
+    [*] --> Created: Job received by the scheduler
+    Created --> WaitingForResources: Start scheduling
+    WaitingForResources --> WaitingForResources: Wait for resources to stabilize
+    WaitingForResources --> Executing: Resources are stable
+    WaitingForResources --> Finished: Cancel, suspend or not enough\nresources for executing
+    Executing --> Canceling: Cancel
+    Executing --> Failing: Unrecoverable failure
+    Executing --> Finished: Suspend or job reached terminal state
+    Executing --> Restarting: Change in resources or recoverable failure
+    Restarting --> Finished: Suspend
+    Restarting --> Canceling: Cancel
+    Restarting --> WaitingForResources: Wait for resources to stabilize
+    Canceling --> Finished: Cancelled
+    Failing --> Finished: Failed
+    Finished --> [*]
+{{< /mermaid >}}
+
+### Usage
+
+You can opt-in to use the AdaptiveScheduler instead of the DefaultScheduler by configuring
+`jobmanager.scheduler: adaptive`.
+
+You can adjust the AdaptiveScheduler's behavior by tweaking the [config options]({{< ref "docs/deployment/config">}}#advanced-scheduling-options) prefixed with
+`jobmanager.adaptive-scheduler`.
+
+### Limitations
+
+- **Streaming jobs only**: The Adaptive Scheduler runs with streaming jobs only. When submitting a batch job, we will automatically fall back to the default scheduler.
+- **No support for partial failover**: Partial failover means that the scheduler is able to restart parts ("regions" in Flink's internals) of a failed job, instead of the entire job. This limitation impacts only recovery time of embarrassingly parallel jobs: Flink's default scheduler can restart failed parts, while Adaptive Scheduler will restart the entire job.
+- Scaling events trigger job and task restarts, which will increase the number of Task attempts.
+
+### Reactive Mode
 
 Reactive Mode configures a job so that it always uses all resources available in the cluster. Adding a TaskManager will scale up your job, removing resources will scale it down. Flink will manage the parallelism of the job, always setting it to the highest possible values.
 
@@ -119,34 +191,6 @@ Since Reactive Mode is a new, experimental feature, not all features supported b
 
 The [limitations of Adaptive Scheduler](#limitations-1) also apply to Reactive Mode.
 
-
-## Adaptive Scheduler
-
-{{< hint warning >}}
-Using Adaptive Scheduler directly (not through Reactive Mode) is only advised for advanced users because slot allocation on a session cluster with multiple jobs is not defined.
-{{< /hint >}}
-
-The Adaptive Scheduler can adjust the parallelism of a job based on available slots. It will automatically reduce the parallelism if not enough slots are available to run the job with the originally configured parallelism; be it due to not enough resources being available at the time of submission, or TaskManager outages during the job execution. If new slots become available the job will be scaled up again, up to the configured parallelism.
-In Reactive Mode (see above) the configured parallelism is ignored and treated as if it was set to infinity, letting the job always use as many resources as possible.
-You can also use Adaptive Scheduler without Reactive Mode, but there are some practical limitations:
-- If you are using Adaptive Scheduler on a session cluster, there are no guarantees regarding the distribution of slots between multiple running jobs in the same session.
-
-One benefit of the Adaptive Scheduler over the default scheduler is that it can handle TaskManager losses gracefully, since it would just scale down in these cases.
-
-### Usage
-
-The following configuration parameter need to be set:
-
-- `jobmanager.scheduler: adaptive`: Change from the default scheduler to adaptive scheduler
-
-The behavior of Adaptive Scheduler is configured by [all configuration options containing `adaptive-scheduler`]({{< ref "docs/deployment/config">}}#advanced-scheduling-options) in their name.
-
-### Limitations
-
-- **Streaming jobs only**: The first version of Adaptive Scheduler runs with streaming jobs only. When submitting a batch job, we will automatically fall back to the default scheduler.
-- **No support for [local recovery]({{< ref "docs/ops/state/large_state_tuning">}}#task-local-recovery)**: Local recovery is a feature that schedules tasks to machines so that the state on that machine gets re-used if possible. The lack of this feature means that Adaptive Scheduler will always need to download the entire state from the checkpoint storage.
-- **No support for partial failover**: Partial failover means that the scheduler is able to restart parts ("regions" in Flink's internals) of a failed job, instead of the entire job. This limitation impacts only recovery time of embarrassingly parallel jobs: Flink's default scheduler can restart failed parts, while Adaptive Scheduler will restart the entire job.
-- Scaling events trigger job and task restarts, which will increase the number of Task attempts.
 
 ## Adaptive Batch Scheduler
 
