@@ -22,6 +22,7 @@ import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.testutils.FlinkMatchers;
 import org.apache.flink.runtime.blob.VoidBlobWriter;
+import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
 import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
 import org.apache.flink.runtime.checkpoint.StandaloneCheckpointIDCounter;
@@ -35,6 +36,7 @@ import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
 import org.apache.flink.runtime.jobmaster.DefaultExecutionDeploymentTracker;
 import org.apache.flink.runtime.jobmaster.TestUtils;
+import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.shuffle.ShuffleTestUtils;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
@@ -71,7 +73,10 @@ public class DefaultExecutionGraphFactoryTest extends TestLogger {
     public void testRestoringModifiedJobFromSavepointFails() throws Exception {
         final JobGraph jobGraphWithNewOperator = createJobGraphWithSavepoint(false, 42L);
 
-        final ExecutionGraphFactory executionGraphFactory = createExecutionGraphFactory();
+        final JobManagerJobMetricGroup metricGroup =
+                UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup();
+        final ExecutionGraphFactory executionGraphFactory =
+                createExecutionGraphFactory(metricGroup);
 
         try {
             executionGraphFactory.createAndRestoreExecutionGraph(
@@ -79,6 +84,7 @@ public class DefaultExecutionGraphFactoryTest extends TestLogger {
                     new StandaloneCompletedCheckpointStore(1),
                     new CheckpointsCleaner(),
                     new StandaloneCheckpointIDCounter(),
+                    new CheckpointStatsTracker(10, metricGroup),
                     TaskDeploymentDescriptorFactory.PartitionLocationConstraint.CAN_BE_UNKNOWN,
                     0L,
                     new DefaultVertexAttemptNumberStore(),
@@ -100,7 +106,10 @@ public class DefaultExecutionGraphFactoryTest extends TestLogger {
         final long savepointId = 42L;
         final JobGraph jobGraphWithNewOperator = createJobGraphWithSavepoint(true, savepointId);
 
-        final ExecutionGraphFactory executionGraphFactory = createExecutionGraphFactory();
+        final JobManagerJobMetricGroup metricGroup =
+                UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup();
+        final ExecutionGraphFactory executionGraphFactory =
+                createExecutionGraphFactory(metricGroup);
 
         final StandaloneCompletedCheckpointStore completedCheckpointStore =
                 new StandaloneCompletedCheckpointStore(1);
@@ -109,6 +118,7 @@ public class DefaultExecutionGraphFactoryTest extends TestLogger {
                 completedCheckpointStore,
                 new CheckpointsCleaner(),
                 new StandaloneCheckpointIDCounter(),
+                new CheckpointStatsTracker(10, metricGroup),
                 TaskDeploymentDescriptorFactory.PartitionLocationConstraint.CAN_BE_UNKNOWN,
                 0L,
                 new DefaultVertexAttemptNumberStore(),
@@ -125,7 +135,8 @@ public class DefaultExecutionGraphFactoryTest extends TestLogger {
     }
 
     @Nonnull
-    private ExecutionGraphFactory createExecutionGraphFactory() {
+    private ExecutionGraphFactory createExecutionGraphFactory(
+            JobManagerJobMetricGroup metricGroup) {
         final ExecutionGraphFactory executionGraphFactory =
                 new DefaultExecutionGraphFactory(
                         new Configuration(),

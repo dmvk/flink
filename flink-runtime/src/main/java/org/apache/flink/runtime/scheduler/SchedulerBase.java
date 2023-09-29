@@ -41,6 +41,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointScheduling;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
+import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
 import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpointStore;
@@ -216,6 +217,10 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         completedCheckpointStore,
                         checkpointsCleaner,
                         checkpointIdCounter,
+                        new CheckpointStatsTracker(
+                                jobMasterConfiguration.getInteger(
+                                        WebOptions.CHECKPOINTS_HISTORY_SIZE),
+                                jobManagerJobMetricGroup),
                         initializationTimestamp,
                         mainThreadExecutor,
                         jobStatusListener,
@@ -362,6 +367,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
             CompletedCheckpointStore completedCheckpointStore,
             CheckpointsCleaner checkpointsCleaner,
             CheckpointIDCounter checkpointIdCounter,
+            CheckpointStatsTracker checkpointStatsTracker,
             long initializationTimestamp,
             ComponentMainThreadExecutor mainThreadExecutor,
             JobStatusListener jobStatusListener,
@@ -374,6 +380,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         completedCheckpointStore,
                         checkpointsCleaner,
                         checkpointIdCounter,
+                        checkpointStatsTracker,
                         TaskDeploymentDescriptorFactory.PartitionLocationConstraint.fromJobType(
                                 jobGraph.getJobType()),
                         initializationTimestamp,
