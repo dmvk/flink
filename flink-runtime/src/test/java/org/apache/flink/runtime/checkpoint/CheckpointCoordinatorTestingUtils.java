@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.eventtime.WatermarkStrategyTest.DummyMetricGroup;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.fs.Path;
@@ -45,6 +44,7 @@ import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.state.ChainedStateHandle;
 import org.apache.flink.runtime.state.CheckpointStorage;
 import org.apache.flink.runtime.state.InputChannelStateHandle;
@@ -781,7 +781,8 @@ public class CheckpointCoordinatorTestingUtils {
         private boolean allowCheckpointsAfterTasksFinished;
 
         private CheckpointStatsTracker checkpointStatsTracker =
-                new CheckpointStatsTracker(1, new DummyMetricGroup());
+                new CheckpointStatsTracker(
+                        1, UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
 
         private BiFunction<
                         Set<ExecutionJobVertex>,

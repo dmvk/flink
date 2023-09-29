@@ -20,11 +20,11 @@ package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.metrics.Gauge;
-import org.apache.flink.metrics.MetricGroup;
-import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
+import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 
@@ -59,7 +59,8 @@ class CheckpointStatsTrackerTest {
         ExecutionJobVertex jobVertex = graph.getJobVertex(jobVertexID);
 
         CheckpointStatsTracker tracker =
-                new CheckpointStatsTracker(0, new UnregisteredMetricsGroup());
+                new CheckpointStatsTracker(
+                        0, UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
 
         PendingCheckpointStats pending =
                 tracker.reportPendingCheckpoint(
@@ -107,7 +108,8 @@ class CheckpointStatsTrackerTest {
                 singletonMap(jobVertexID, jobVertex.getParallelism());
 
         CheckpointStatsTracker tracker =
-                new CheckpointStatsTracker(10, new UnregisteredMetricsGroup());
+                new CheckpointStatsTracker(
+                        10, UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
 
         // Completed checkpoint
         PendingCheckpointStats completed1 =
@@ -231,7 +233,8 @@ class CheckpointStatsTrackerTest {
     void testCreateSnapshot() {
         JobVertexID jobVertexID = new JobVertexID();
         CheckpointStatsTracker tracker =
-                new CheckpointStatsTracker(10, new UnregisteredMetricsGroup());
+                new CheckpointStatsTracker(
+                        10, UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
 
         CheckpointStatsSnapshot snapshot1 = tracker.createSnapshot();
 
@@ -276,8 +279,8 @@ class CheckpointStatsTrackerTest {
     void testMetricsRegistration() {
         final Collection<String> registeredGaugeNames = new ArrayList<>();
 
-        MetricGroup metricGroup =
-                new UnregisteredMetricsGroup() {
+        JobManagerJobMetricGroup metricGroup =
+                new UnregisteredMetricGroups.UnregisteredJobManagerJobMetricGroup() {
                     @Override
                     public <T, G extends Gauge<T>> G gauge(String name, G gauge) {
                         if (gauge != null) {
@@ -320,8 +323,8 @@ class CheckpointStatsTrackerTest {
     void testMetricsAreUpdated() throws Exception {
         final Map<String, Gauge<?>> registeredGauges = new HashMap<>();
 
-        MetricGroup metricGroup =
-                new UnregisteredMetricsGroup() {
+        JobManagerJobMetricGroup metricGroup =
+                new UnregisteredMetricGroups.UnregisteredJobManagerJobMetricGroup() {
                     @Override
                     public <T, G extends Gauge<T>> G gauge(String name, G gauge) {
                         registeredGauges.put(name, gauge);

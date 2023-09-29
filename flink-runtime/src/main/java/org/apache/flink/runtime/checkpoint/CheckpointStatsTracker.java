@@ -109,18 +109,9 @@ public class CheckpointStatsTracker {
      */
     public CheckpointStatsTracker(
             int numRememberedCheckpoints, JobManagerJobMetricGroup metricGroup) {
-        this(numRememberedCheckpoints, metricGroup, metricGroup.jobId());
-    }
-
-    public CheckpointStatsTracker(int numRememberedCheckpoints, MetricGroup metricGroup) {
-        this(numRememberedCheckpoints, metricGroup, new JobID());
-    }
-
-    private CheckpointStatsTracker(
-            int numRememberedCheckpoints, MetricGroup metricGroup, JobID jobID) {
         checkArgument(numRememberedCheckpoints >= 0, "Negative number of remembered checkpoints");
         this.history = new CheckpointStatsHistory(numRememberedCheckpoints);
-        this.jobID = jobID;
+        this.jobID = metricGroup.jobId();
 
         // Latest snapshot is empty
         latestSnapshot =
