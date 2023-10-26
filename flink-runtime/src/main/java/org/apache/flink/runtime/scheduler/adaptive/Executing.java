@@ -24,7 +24,11 @@ import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.checkpoint.CheckpointScheduling;
+import org.apache.flink.runtime.checkpoint.CheckpointStatsListener;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
+import org.apache.flink.runtime.checkpoint.CompletedCheckpointStats;
+import org.apache.flink.runtime.checkpoint.FailedCheckpointStats;
+import org.apache.flink.runtime.checkpoint.PendingCheckpointStats;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
@@ -47,7 +51,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 
 /** State which represents a running job with an {@link ExecutionGraph} and assigned slots. */
-class Executing extends StateWithExecutionGraph implements ResourceListener {
+class Executing extends StateWithExecutionGraph
+        implements ResourceListener, CheckpointStatsListener {
 
     private final Context context;
     private final Instant lastRescale;
@@ -223,6 +228,15 @@ class Executing extends StateWithExecutionGraph implements ResourceListener {
             context.runIfState(this, this::maybeRescale, scalingIntervalMin);
         }
     }
+
+    @Override
+    public void onPendingCheckpointStats(PendingCheckpointStats stats) {}
+
+    @Override
+    public void onCompletedCheckpointStats(CompletedCheckpointStats stats) {}
+
+    @Override
+    public void onFailedCheckpointStats(FailedCheckpointStats stats) {}
 
     CompletableFuture<String> stopWithSavepoint(
             @Nullable final String targetDirectory,

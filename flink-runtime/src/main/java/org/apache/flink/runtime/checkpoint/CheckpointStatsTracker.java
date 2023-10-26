@@ -85,6 +85,8 @@ public class CheckpointStatsTracker {
 
     private final JobID jobID;
 
+    @Nullable private final CheckpointStatsListener checkpointStatsListener;
+
     /** The latest restored checkpoint. */
     @Nullable private RestoredCheckpointStats latestRestoredCheckpoint;
 
@@ -105,13 +107,29 @@ public class CheckpointStatsTracker {
      *
      * @param numRememberedCheckpoints Maximum number of checkpoints to remember, including in
      *     progress ones.
-     * @param metricGroup Metric group for exposed metrics
+     * @param metricGroup Metric group for exposed metrics.
      */
     public CheckpointStatsTracker(
             int numRememberedCheckpoints, JobManagerJobMetricGroup metricGroup) {
+        this(numRememberedCheckpoints, metricGroup, null);
+    }
+
+    /**
+     * Creates a new checkpoint stats tracker.
+     *
+     * @param numRememberedCheckpoints Maximum number of checkpoints to remember, including in
+     *     progress ones.
+     * @param metricGroup Metric group for exposed metrics.
+     * @param checkpointStatsListener Listen on checkpoint statistics.
+     */
+    public CheckpointStatsTracker(
+            int numRememberedCheckpoints,
+            JobManagerJobMetricGroup metricGroup,
+            @Nullable CheckpointStatsListener checkpointStatsListener) {
         checkArgument(numRememberedCheckpoints >= 0, "Negative number of remembered checkpoints");
         this.history = new CheckpointStatsHistory(numRememberedCheckpoints);
         this.jobID = metricGroup.jobId();
+        this.checkpointStatsListener = checkpointStatsListener;
 
         // Latest snapshot is empty
         latestSnapshot =
@@ -184,6 +202,10 @@ public class CheckpointStatsTracker {
             history.addInProgressCheckpoint(pending);
 
             dirty = true;
+
+            if (checkpointStatsListener != null) {
+                checkpointStatsListener.onPendingCheckpointStats(pending);
+            }
         } finally {
             statsReadWriteLock.unlock();
         }
@@ -205,6 +227,10 @@ public class CheckpointStatsTracker {
             latestRestoredCheckpoint = restored;
 
             dirty = true;
+
+            if (checkpointStatsListener != null) {
+                checkpointStatsListener.onRestoredCheckpointStats(restored);
+            }
         } finally {
             statsReadWriteLock.unlock();
         }
@@ -227,6 +253,10 @@ public class CheckpointStatsTracker {
 
             dirty = true;
             logCheckpointStatistics(completed);
+
+            if (checkpointStatsListener != null) {
+                checkpointStatsListener.onCompletedCheckpointStats(completed);
+            }
         } finally {
             statsReadWriteLock.unlock();
         }
@@ -245,6 +275,10 @@ public class CheckpointStatsTracker {
 
             dirty = true;
             logCheckpointStatistics(failed);
+
+            if (checkpointStatsListener != null) {
+                checkpointStatsListener.onFailedCheckpointStats(failed);
+            }
         } finally {
             statsReadWriteLock.unlock();
         }

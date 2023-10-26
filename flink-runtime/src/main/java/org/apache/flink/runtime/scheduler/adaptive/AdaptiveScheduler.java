@@ -39,11 +39,16 @@ import org.apache.flink.runtime.checkpoint.CheckpointIDCounter;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointScheduling;
+import org.apache.flink.runtime.checkpoint.CheckpointStatsListener;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
 import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
+import org.apache.flink.runtime.checkpoint.CompletedCheckpointStats;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpointStore;
+import org.apache.flink.runtime.checkpoint.FailedCheckpointStats;
+import org.apache.flink.runtime.checkpoint.PendingCheckpointStats;
+import org.apache.flink.runtime.checkpoint.RestoredCheckpointStats;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
@@ -293,7 +298,8 @@ public class AdaptiveScheduler
         this.checkpointStatsTracker =
                 new CheckpointStatsTracker(
                         configuration.getInteger(WebOptions.CHECKPOINTS_HISTORY_SIZE),
-                        jobManagerJobMetricGroup);
+                        jobManagerJobMetricGroup,
+                        createCheckpointStatsListener());
 
         this.slotAllocator = slotAllocator;
 
@@ -1365,5 +1371,42 @@ public class AdaptiveScheduler
                         this::checkIdleSlotTimeout,
                         slotIdleTimeout.toMillis(),
                         TimeUnit.MILLISECONDS);
+    }
+
+    private CheckpointStatsListener createCheckpointStatsListener() {
+        return new CheckpointStatsListener() {
+
+            @Override
+            public void onPendingCheckpointStats(PendingCheckpointStats stats) {
+                state.tryRun(
+                        CheckpointStatsListener.class,
+                        listener -> listener.onPendingCheckpointStats(stats),
+                        "onPendingCheckpointStats");
+            }
+
+            @Override
+            public void onFailedCheckpointStats(FailedCheckpointStats stats) {
+                state.tryRun(
+                        CheckpointStatsListener.class,
+                        listener -> listener.onFailedCheckpointStats(stats),
+                        "onFailedCheckpointStats");
+            }
+
+            @Override
+            public void onCompletedCheckpointStats(CompletedCheckpointStats stats) {
+                state.tryRun(
+                        CheckpointStatsListener.class,
+                        listener -> listener.onCompletedCheckpointStats(stats),
+                        "onCompletedCheckpointStats");
+            }
+
+            @Override
+            public void onRestoredCheckpointStats(RestoredCheckpointStats stats) {
+                state.tryRun(
+                        CheckpointStatsListener.class,
+                        listener -> listener.onRestoredCheckpointStats(stats),
+                        "onRestoredCheckpointStats");
+            }
+        };
     }
 }
