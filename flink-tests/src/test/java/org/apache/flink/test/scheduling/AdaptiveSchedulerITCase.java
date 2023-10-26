@@ -18,11 +18,14 @@
 
 package org.apache.flink.test.scheduling;
 
+import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.configuration.ClusterOptions;
 import org.apache.flink.configuration.Configuration;
@@ -30,6 +33,16 @@ import org.apache.flink.configuration.HeartbeatManagerOptions;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.execution.Environment;
+import org.apache.flink.runtime.jobgraph.JobGraph;
+import org.apache.flink.runtime.jobgraph.JobGraphBuilder;
+import org.apache.flink.runtime.jobgraph.JobVertex;
+import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
+import org.apache.flink.runtime.minicluster.MiniCluster;
+import org.apache.flink.runtime.operators.coordination.OperatorCoordinator;
+import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
 import org.apache.flink.runtime.rest.messages.JobExceptionsHeaders;
 import org.apache.flink.runtime.rest.messages.JobExceptionsInfoWithHistory;
@@ -48,6 +61,7 @@ import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunctio
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.After;
@@ -62,6 +76,7 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -270,23 +285,52 @@ public class AdaptiveSchedulerITCase extends TestLogger {
         final JobClient jobClient = env.executeAsync();
         CommonTestUtils.waitUntilCondition(
                 () -> {
-                    final RestClusterClient<?> restClusterClient =
-                            MINI_CLUSTER_WITH_CLIENT_RESOURCE.getRestClusterClient();
-                    final JobExceptionsMessageParameters params =
-                            new JobExceptionsMessageParameters();
-                    params.jobPathParameter.resolve(jobClient.getJobID());
-                    final CompletableFuture<JobExceptionsInfoWithHistory> exceptionsFuture =
-                            restClusterClient.sendRequest(
-                                    JobExceptionsHeaders.getInstance(),
-                                    params,
-                                    EmptyRequestBody.getInstance());
-                    final JobExceptionsInfoWithHistory jobExceptionsInfoWithHistory =
-                            exceptionsFuture.get();
-                    return jobExceptionsInfoWithHistory.getExceptionHistory().getEntries().size()
-                            > 0;
+                    final List<JobExceptionsInfoWithHistory.RootExceptionInfo> exceptions =
+                            getJobExceptions(jobClient.getJobID())
+                                    .get()
+                                    .getExceptionHistory()
+                                    .getEntries();
+                    return !exceptions.isEmpty();
                 });
         jobClient.cancel().get();
         CommonTestUtils.waitForJobStatus(jobClient, Collections.singletonList(JobStatus.CANCELED));
+    }
+
+    @Test
+    public void testGlobalFailureAfterLocal() throws Exception {
+        final MiniCluster miniCluster = MINI_CLUSTER_WITH_CLIENT_RESOURCE.getMiniCluster();
+
+        final JobVertexID jobVertexId = new JobVertexID();
+        final JobVertex jobVertex = new JobVertex("jobVertex", jobVertexId);
+        jobVertex.setInvokableClass(FailingInvokable.class);
+        jobVertex.addOperatorCoordinator(
+                new SerializedValue<>(
+                        new FailingCoordinatorProvider(OperatorID.fromJobVertexID(jobVertexId))));
+        jobVertex.setParallelism(1);
+
+        final ExecutionConfig executionConfig = new ExecutionConfig();
+        executionConfig.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, Time.hours(1)));
+
+        final JobGraph jobGraph =
+                JobGraphBuilder.newStreamingJobGraphBuilder()
+                        .addJobVertices(Collections.singletonList(jobVertex))
+                        .setExecutionConfig(executionConfig)
+                        .build();
+        miniCluster.submitJob(jobGraph).join();
+
+        // We rely on waiting in restarting state (see the restart strategy above)
+
+        CommonTestUtils.waitUntilCondition(
+                () -> miniCluster.getJobStatus(jobGraph.getJobID()).join() == JobStatus.RESTARTING);
+        FailingCoordinatorProvider.JOB_RESTARTING.countDown();
+
+        // @todo I think we might have small race condition here ... between coordinator thread
+        // calling failJob and pulling exceptions.
+
+        // This should not fail.
+        getJobExceptions(jobGraph.getJobID()).get();
+
+        miniCluster.cancelJob(jobGraph.getJobID());
     }
 
     private boolean isDirectoryEmpty(File directory) {
@@ -310,6 +354,102 @@ public class AdaptiveSchedulerITCase extends TestLogger {
                 // TODO replace this by sink v2 after source is ported to FLIP-27.
                 .addSink(new DiscardingSink<>());
         return env;
+    }
+
+    private static CompletableFuture<JobExceptionsInfoWithHistory> getJobExceptions(JobID jobId)
+            throws Exception {
+        final RestClusterClient<?> restClusterClient =
+                MINI_CLUSTER_WITH_CLIENT_RESOURCE.getRestClusterClient();
+        final JobExceptionsMessageParameters params = new JobExceptionsMessageParameters();
+        params.jobPathParameter.resolve(jobId);
+        return restClusterClient.sendRequest(
+                JobExceptionsHeaders.getInstance(), params, EmptyRequestBody.getInstance());
+    }
+
+    public static class FailingInvokable extends AbstractInvokable {
+
+        public FailingInvokable(Environment environment) {
+            super(environment);
+        }
+
+        @Override
+        public void invoke() throws Exception {
+            throw new Exception("Local exception.");
+        }
+    }
+
+    private static class FailingCoordinatorProvider implements OperatorCoordinator.Provider {
+
+        private static final CountDownLatch JOB_RESTARTING = new CountDownLatch(1);
+
+        private final OperatorID operatorId;
+
+        FailingCoordinatorProvider(OperatorID operatorId) {
+            this.operatorId = operatorId;
+        }
+
+        @Override
+        public OperatorID getOperatorId() {
+            return operatorId;
+        }
+
+        @Override
+        public OperatorCoordinator create(OperatorCoordinator.Context context) throws Exception {
+            return new OperatorCoordinator() {
+
+                @Nullable private Thread thread;
+
+                @Override
+                public void start() {
+                    thread =
+                            new Thread(
+                                    () -> {
+                                        try {
+                                            JOB_RESTARTING.await();
+                                            context.failJob(new Exception("Global exception."));
+                                        } catch (InterruptedException e) {
+                                            // Ignored.
+                                        }
+                                    });
+                    thread.setName("failing-coordinator");
+                    thread.setDaemon(true);
+                    thread.start();
+                }
+
+                @Override
+                public void close() throws Exception {
+                    if (thread != null) {
+                        thread.interrupt();
+                        thread.join();
+                    }
+                }
+
+                @Override
+                public void handleEventFromOperator(
+                        int subtask, int attemptNumber, OperatorEvent event) {}
+
+                @Override
+                public void checkpointCoordinator(
+                        long checkpointId, CompletableFuture<byte[]> resultFuture) {}
+
+                @Override
+                public void notifyCheckpointComplete(long checkpointId) {}
+
+                @Override
+                public void resetToCheckpoint(long checkpointId, @Nullable byte[] checkpointData) {}
+
+                @Override
+                public void subtaskReset(int subtask, long checkpointId) {}
+
+                @Override
+                public void executionAttemptFailed(
+                        int subtask, int attemptNumber, @Nullable Throwable reason) {}
+
+                @Override
+                public void executionAttemptReady(
+                        int subtask, int attemptNumber, SubtaskGateway gateway) {}
+            };
+        }
     }
 
     private static final class DummySource extends RichParallelSourceFunction<Integer>
