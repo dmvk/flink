@@ -28,6 +28,7 @@ import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
 import org.apache.flink.runtime.checkpoint.filemerging.LogicalFile;
 import org.apache.flink.runtime.state.CheckpointedStateScope;
+import org.apache.flink.runtime.state.CustomKeyedStateHandle;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle.HandleAndLocalPath;
 import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.InputChannelStateHandle;
@@ -59,7 +60,9 @@ import org.apache.flink.runtime.state.filesystem.FileStateHandle;
 import org.apache.flink.runtime.state.filesystem.RelativeFileStateHandle;
 import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
 import org.apache.flink.util.CollectionUtil;
+import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.IOUtils;
+import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.function.BiConsumerWithException;
 import org.apache.flink.util.function.BiFunctionWithException;
@@ -80,6 +83,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle.UNKNOWN_CHECKPOINTED_SIZE;
@@ -141,6 +145,8 @@ public abstract class MetadataV2V3SerializerBase {
     // SEGMENT_PARTITIONABLE_OPERATOR_STATE_HANDLE is introduced for file merging of operator state.
     private static final byte SEGMENT_PARTITIONABLE_OPERATOR_STATE_HANDLE = 17;
 
+    private static final byte CUSTOM_KEYED_STATE_HANDLE = 18;
+
     // ------------------------------------------------------------------------
     //  (De)serialization entry points
     // ------------------------------------------------------------------------
@@ -167,7 +173,7 @@ public abstract class MetadataV2V3SerializerBase {
     }
 
     protected CheckpointMetadata deserializeMetadata(
-            DataInputStream dis, @Nullable String externalPointer) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable String externalPointer) throws IOException {
 
         final DeserializationContext context =
                 externalPointer == null ? null : new DeserializationContext(externalPointer);
@@ -198,7 +204,7 @@ public abstract class MetadataV2V3SerializerBase {
         final List<OperatorState> operatorStates = new ArrayList<>(numTaskStates);
 
         for (int i = 0; i < numTaskStates; i++) {
-            operatorStates.add(deserializeOperatorState(dis, context));
+            operatorStates.add(deserializeOperatorState(dis, classLoader, context));
         }
 
         return new CheckpointMetadata(checkpointId, operatorStates, masterStates);
@@ -270,7 +276,7 @@ public abstract class MetadataV2V3SerializerBase {
             OperatorState operatorState, DataOutputStream dos) throws IOException;
 
     protected abstract OperatorState deserializeOperatorState(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException;
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException;
 
     protected void serializeSubtaskState(OperatorSubtaskState subtaskState, DataOutputStream dos)
             throws IOException {
@@ -289,7 +295,7 @@ public abstract class MetadataV2V3SerializerBase {
     }
 
     protected OperatorSubtaskState deserializeSubtaskState(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException {
 
         final OperatorSubtaskState.Builder state = OperatorSubtaskState.builder();
 
@@ -303,11 +309,11 @@ public abstract class MetadataV2V3SerializerBase {
             state.setRawOperatorState(deserializeOperatorStateHandle(dis, context));
         }
 
-        final KeyedStateHandle managedKeyedState = deserializeKeyedStateHandle(dis, context);
+        final KeyedStateHandle managedKeyedState = deserializeKeyedStateHandle(dis, classLoader, context);
         if (managedKeyedState != null) {
             state.setManagedKeyedState(managedKeyedState);
         }
-        final KeyedStateHandle rawKeyedState = deserializeKeyedStateHandle(dis, context);
+        final KeyedStateHandle rawKeyedState = deserializeKeyedStateHandle(dis, classLoader, context);
         if (rawKeyedState != null) {
             state.setRawKeyedState(rawKeyedState);
         }
@@ -416,6 +422,11 @@ public abstract class MetadataV2V3SerializerBase {
             dos.writeLong(handle.getCheckpointedSize());
             writeStateHandleId(handle, dos);
             dos.writeUTF(handle.getStorageIdentifier());
+        } else if (stateHandle instanceof CustomKeyedStateHandle) {
+            final CustomKeyedStateHandle handle = (CustomKeyedStateHandle) stateHandle;
+            dos.writeInt(CUSTOM_KEYED_STATE_HANDLE);
+            dos.writeUTF(handle.getSerializer().getClass().getName());
+            handle.getSerializer().serialize(handle, dos);
         } else {
             throw new IllegalStateException(
                     "Unknown KeyedStateHandle type: " + stateHandle.getClass());
@@ -430,7 +441,7 @@ public abstract class MetadataV2V3SerializerBase {
     @VisibleForTesting
     @Nullable
     static KeyedStateHandle deserializeKeyedStateHandle(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException {
 
         final int type = dis.readByte();
         if (NULL_HANDLE == type) {
@@ -474,7 +485,7 @@ public abstract class MetadataV2V3SerializerBase {
             int baseSize = dis.readInt();
             List<KeyedStateHandle> base = new ArrayList<>(baseSize);
             for (int i = 0; i < baseSize; i++) {
-                KeyedStateHandle handle = deserializeKeyedStateHandle(dis, context);
+                KeyedStateHandle handle = deserializeKeyedStateHandle(dis, classLoader, context);
                 if (handle != null) {
                     base.add(handle);
                 } else {
@@ -485,7 +496,7 @@ public abstract class MetadataV2V3SerializerBase {
             int deltaSize = dis.readInt();
             List<ChangelogStateHandle> delta = new ArrayList<>(deltaSize);
             for (int i = 0; i < deltaSize; i++) {
-                delta.add((ChangelogStateHandle) deserializeKeyedStateHandle(dis, context));
+                delta.add((ChangelogStateHandle) deserializeKeyedStateHandle(dis, classLoader, context));
             }
 
             long materializationID = dis.readLong();
@@ -552,6 +563,15 @@ public abstract class MetadataV2V3SerializerBase {
                     checkpointedSize,
                     storageIdentifier,
                     stateHandleId);
+        } else if (type == CUSTOM_KEYED_STATE_HANDLE) {
+            final String serializerClass = dis.readUTF();
+            final CustomKeyedStateHandle.Serializer serializer;
+            try {
+                serializer = InstantiationUtil.instantiate(serializerClass, CustomKeyedStateHandle.Serializer.class, classLoader);
+            } catch (FlinkException e) {
+                throw new IOException(String.format("Failed to instantiate serializer [%s].", serializerClass), e);
+            }
+            return serializer.deserialize(dis, classLoader, context != null ? context.getExclusiveDirPath() : null);
         } else {
             throw new IllegalStateException("Reading invalid KeyedStateHandle, type: " + type);
         }

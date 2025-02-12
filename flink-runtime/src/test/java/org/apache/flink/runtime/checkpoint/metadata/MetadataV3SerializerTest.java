@@ -302,7 +302,7 @@ class MetadataV3SerializerTest {
             try (ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray())) {
                 KeyedStateHandle deserialized =
                         MetadataV2V3SerializerBase.deserializeKeyedStateHandle(
-                                new DataInputStream(in), null);
+                                new DataInputStream(in), getClass().getClassLoader(), null);
                 assertThat(deserialized)
                         .isInstanceOfSatisfying(
                                 ChangelogStateBackendHandleImpl.class,

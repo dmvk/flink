@@ -87,7 +87,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
     public CheckpointMetadata deserialize(
             DataInputStream dis, ClassLoader classLoader, String externalPointer)
             throws IOException {
-        return deserializeMetadata(dis, externalPointer);
+        return deserializeMetadata(dis, classLoader, externalPointer);
     }
 
     // ------------------------------------------------------------------------
@@ -150,7 +150,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
 
     @Override
     protected OperatorState deserializeOperatorState(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException {
         final OperatorID jobVertexId = new OperatorID(dis.readLong(), dis.readLong());
         final int parallelism = dis.readInt();
         final int maxParallelism = dis.readInt();
@@ -181,7 +181,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
                         subtaskAndFinishedState.subtaskIndex,
                         FinishedOperatorSubtaskState.INSTANCE);
             } else {
-                final OperatorSubtaskState subtaskState = deserializeSubtaskState(dis, context);
+                final OperatorSubtaskState subtaskState = deserializeSubtaskState(dis, classLoader, context);
                 operatorState.putState(subtaskAndFinishedState.subtaskIndex, subtaskState);
             }
         }
@@ -285,13 +285,13 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
     @VisibleForTesting
     public static void serializeKeyedStateHandleUtil(
             KeyedStateHandle stateHandle, DataOutputStream dos) throws IOException {
-        INSTANCE.serializeKeyedStateHandle(stateHandle, dos);
+        serializeKeyedStateHandle(stateHandle, dos);
     }
 
     @VisibleForTesting
-    public static KeyedStateHandle deserializeKeyedStateHandleUtil(DataInputStream dis)
+    public static KeyedStateHandle deserializeKeyedStateHandleUtil(DataInputStream dis, ClassLoader classLoader)
             throws IOException {
-        return INSTANCE.deserializeKeyedStateHandle(dis, null);
+        return deserializeKeyedStateHandle(dis, classLoader, null);
     }
 
     @VisibleForTesting

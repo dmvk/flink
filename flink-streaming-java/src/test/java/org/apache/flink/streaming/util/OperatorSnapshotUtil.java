@@ -123,7 +123,7 @@ public class OperatorSnapshotUtil {
     }
 
     public static OperatorSubtaskState readStateHandle(String path)
-            throws IOException, ClassNotFoundException {
+            throws IOException {
         FileInputStream in = new FileInputStream(path);
         try (DataInputStream dis = new DataInputStream(in)) {
 
@@ -161,7 +161,7 @@ public class OperatorSnapshotUtil {
                 rawKeyedState = new ArrayList<>();
                 for (int i = 0; i < numRawKeyedStates; i++) {
                     KeyedStateHandle keyedState =
-                            MetadataV3Serializer.deserializeKeyedStateHandleUtil(dis);
+                            MetadataV3Serializer.deserializeKeyedStateHandleUtil(dis, OperatorSnapshotUtil.class.getClassLoader());
                     rawKeyedState.add(keyedState);
                 }
             }
@@ -172,7 +172,7 @@ public class OperatorSnapshotUtil {
                 managedKeyedState = new ArrayList<>();
                 for (int i = 0; i < numManagedKeyedStates; i++) {
                     KeyedStateHandle keyedState =
-                            MetadataV3Serializer.deserializeKeyedStateHandleUtil(dis);
+                            MetadataV3Serializer.deserializeKeyedStateHandleUtil(dis, OperatorSnapshotUtil.class.getClassLoader());
                     managedKeyedState.add(keyedState);
                 }
             }

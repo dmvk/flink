@@ -63,7 +63,7 @@ public class MetadataV2Serializer extends MetadataV2V3SerializerBase implements 
     public CheckpointMetadata deserialize(
             DataInputStream dis, ClassLoader classLoader, String externalPointer)
             throws IOException {
-        return deserializeMetadata(dis, externalPointer);
+        return deserializeMetadata(dis, classLoader, externalPointer);
     }
 
     @Override
@@ -108,7 +108,7 @@ public class MetadataV2Serializer extends MetadataV2V3SerializerBase implements 
 
     @Override
     protected OperatorState deserializeOperatorState(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException {
         final OperatorID jobVertexId = new OperatorID(dis.readLong(), dis.readLong());
         final int parallelism = dis.readInt();
         final int maxParallelism = dis.readInt();
@@ -125,7 +125,7 @@ public class MetadataV2Serializer extends MetadataV2V3SerializerBase implements 
 
         for (int j = 0; j < numSubTaskStates; j++) {
             final int subtaskIndex = dis.readInt();
-            final OperatorSubtaskState subtaskState = deserializeSubtaskState(dis, context);
+            final OperatorSubtaskState subtaskState = deserializeSubtaskState(dis, classLoader, context);
             taskState.putState(subtaskIndex, subtaskState);
         }
 
@@ -146,7 +146,7 @@ public class MetadataV2Serializer extends MetadataV2V3SerializerBase implements 
 
     @Override
     protected OperatorSubtaskState deserializeSubtaskState(
-            DataInputStream dis, @Nullable DeserializationContext context) throws IOException {
+            DataInputStream dis, ClassLoader classLoader, @Nullable DeserializationContext context) throws IOException {
         // read two unused fields for compatibility:
         //   - "duration"
         //   - number of legacy states
@@ -159,6 +159,6 @@ public class MetadataV2Serializer extends MetadataV2V3SerializerBase implements 
                             + "no longer supported.");
         }
 
-        return super.deserializeSubtaskState(dis, context);
+        return super.deserializeSubtaskState(dis, classLoader, context);
     }
 }
