@@ -31,7 +31,9 @@ import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.checkpoint.StandaloneCheckpointRecoveryFactory;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.IntermediateResultInfo;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
+import org.apache.flink.runtime.executiongraph.JobVertexInputInfo;
 import org.apache.flink.runtime.executiongraph.ParallelismAndInputInfos;
 import org.apache.flink.runtime.executiongraph.VertexInputInfoComputationUtils;
 import org.apache.flink.runtime.executiongraph.failover.FailoverStrategy;
@@ -40,6 +42,7 @@ import org.apache.flink.runtime.executiongraph.failover.RestartBackoffTimeStrate
 import org.apache.flink.runtime.executiongraph.failover.RestartPipelinedRegionFailoverStrategy;
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
+import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobmaster.DefaultExecutionDeploymentTracker;
@@ -69,6 +72,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
@@ -412,36 +416,89 @@ public class DefaultSchedulerBuilder {
 
     public static VertexParallelismAndInputInfosDecider createCustomParallelismDecider(
             Function<JobVertexID, Integer> parallelismFunction) {
-        return new VertexParallelismAndInputInfosDecider() {
-            @Override
-            public ParallelismAndInputInfos decideParallelismAndInputInfosForVertex(
-                    JobVertexID jobVertexId,
-                    List<BlockingInputInfo> consumedResults,
-                    int vertexInitialParallelism,
-                    int vertexMinParallelism,
-                    int vertexMaxParallelism) {
-                int parallelism =
-                        vertexInitialParallelism > 0
-                                ? vertexInitialParallelism
-                                : parallelismFunction.apply(jobVertexId);
-                return new ParallelismAndInputInfos(
-                        parallelism,
-                        consumedResults.isEmpty()
-                                ? Collections.emptyMap()
-                                : VertexInputInfoComputationUtils.computeVertexInputInfos(
-                                        parallelism, consumedResults, true));
-            }
+        return newParallelismDeciderBuilder().setParallelismFn(parallelismFunction).build();
+    }
 
-            @Override
-            public int computeSourceParallelismUpperBound(
-                    JobVertexID jobVertexId, int maxParallelism) {
-                return parallelismFunction.apply(jobVertexId);
-            }
+    public static TestingVertexParallelismDeciderBuilder newParallelismDeciderBuilder() {
+        return new TestingVertexParallelismDeciderBuilder();
+    }
 
-            @Override
-            public long getDataVolumePerTask() {
-                return 1;
-            }
-        };
+    public interface InputInfosFn {
+
+        Map<IntermediateDataSetID, JobVertexInputInfo> computeVertexInputInfos(
+                JobVertexID jobVertexId,
+                int parallelism,
+                List<? extends IntermediateResultInfo> inputs);
+    }
+
+    public static class TestingVertexParallelismDeciderBuilder {
+
+        private Function<JobVertexID, Integer> parallelismFn =
+                jobVertexId -> {
+                    throw new UnsupportedOperationException(
+                            "Parallelism function is not set. Please set it using setParallelismFn.");
+                };
+
+        private InputInfosFn inputInfosFn =
+                (jobVertexId, parallelism, inputs) ->
+                        VertexInputInfoComputationUtils.computeVertexInputInfos(
+                                parallelism, inputs, true);
+
+        public TestingVertexParallelismDeciderBuilder setParallelismFn(
+                Function<JobVertexID, Integer> parallelismFn) {
+            this.parallelismFn = parallelismFn;
+            return this;
+        }
+
+        public TestingVertexParallelismDeciderBuilder setInputInfosFn(InputInfosFn inputInfosFn) {
+            this.inputInfosFn = inputInfosFn;
+            return this;
+        }
+
+        public TestingVertexParallelismDecider build() {
+            return new TestingVertexParallelismDecider(parallelismFn, inputInfosFn);
+        }
+    }
+
+    public static class TestingVertexParallelismDecider
+            implements VertexParallelismAndInputInfosDecider {
+
+        private final Function<JobVertexID, Integer> parallelismFn;
+        private final InputInfosFn inputInfosFn;
+
+        private TestingVertexParallelismDecider(
+                Function<JobVertexID, Integer> parallelismFn, InputInfosFn inputInfosFn) {
+            this.parallelismFn = parallelismFn;
+            this.inputInfosFn = inputInfosFn;
+        }
+
+        @Override
+        public ParallelismAndInputInfos decideParallelismAndInputInfosForVertex(
+                JobVertexID jobVertexId,
+                List<BlockingInputInfo> consumedResults,
+                int vertexInitialParallelism,
+                int vertexMinParallelism,
+                int vertexMaxParallelism) {
+            int parallelism =
+                    vertexInitialParallelism > 0
+                            ? vertexInitialParallelism
+                            : parallelismFn.apply(jobVertexId);
+            return new ParallelismAndInputInfos(
+                    parallelism,
+                    consumedResults.isEmpty()
+                            ? Collections.emptyMap()
+                            : inputInfosFn.computeVertexInputInfos(
+                                    jobVertexId, parallelism, consumedResults));
+        }
+
+        @Override
+        public int computeSourceParallelismUpperBound(JobVertexID jobVertexId, int maxParallelism) {
+            return parallelismFn.apply(jobVertexId);
+        }
+
+        @Override
+        public long getDataVolumePerTask() {
+            return 1;
+        }
     }
 }

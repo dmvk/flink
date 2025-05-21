@@ -67,6 +67,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -517,14 +518,16 @@ class AdaptiveBatchSchedulerTest {
             final SchedulerBase scheduler, final ExecutionState state, final JobVertex jobVertex) {
         final ExecutionGraph executionGraph = scheduler.getExecutionGraph();
         List<Execution> executions =
-                Arrays.asList(executionGraph.getJobVertex(jobVertex.getID()).getTaskVertices())
-                        .stream()
+                Arrays.stream(
+                                Objects.requireNonNull(
+                                                executionGraph.getJobVertex(jobVertex.getID()))
+                                        .getTaskVertices())
                         .map(ExecutionVertex::getCurrentExecutionAttempt)
                         .collect(Collectors.toList());
         transitionExecutionsState(scheduler, state, executions, null);
     }
 
-    public JobVertex createJobVertex(String jobVertexName, int parallelism) {
+    public static JobVertex createJobVertex(String jobVertexName, int parallelism) {
         final JobVertex jobVertex = new JobVertex(jobVertexName);
         jobVertex.setInvokableClass(NoOpInvokable.class);
         if (parallelism > 0) {
