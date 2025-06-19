@@ -31,6 +31,7 @@ import org.apache.flink.core.failure.TestingFailureEnricher;
 import org.apache.flink.core.testutils.FlinkAssertions;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.metrics.Gauge;
+import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointIDCounter;
@@ -58,7 +59,10 @@ import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraphTest;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionVertex;
+import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.ExecutionGraph;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
 import org.apache.flink.runtime.executiongraph.failover.FixedDelayRestartBackoffTimeStrategy;
 import org.apache.flink.runtime.executiongraph.failover.NoRestartBackoffTimeStrategy;
@@ -149,6 +153,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -2117,6 +2123,7 @@ public class AdaptiveSchedulerTest {
                         .setSlotAllocator(slotAllocator)
                         .setStateTransitionManagerFactory(
                                 getAutoAdvanceStateTransitionManagerFactory())
+                        .setRestartBackoffTimeStrategy(new TestRestartBackoffTimeStrategy(true, 0L))
                         .build();
 
         // Start scheduler
@@ -2158,12 +2165,57 @@ public class AdaptiveSchedulerTest {
 
         // Emulating new graph creation call on job recovery to ensure that the state is considered
         // for new allocations.
-        runInMainThread(() -> scheduler.goToCreatingExecutionGraph(mockExecutionGraph));
+
+        final List<ExecutionAttemptID> executionAttemptIds =
+                supplyInMainThread(
+                        () -> {
+                            final Optional<ExecutionGraph> maybeExecutionGraph =
+                                    scheduler
+                                            .getState()
+                                            .as(StateWithExecutionGraph.class)
+                                            .map(StateWithExecutionGraph::getExecutionGraph);
+                            assertThat(maybeExecutionGraph).isNotEmpty();
+                            final ExecutionVertex[] taskVertices =
+                                    Objects.requireNonNull(
+                                                    maybeExecutionGraph
+                                                            .get()
+                                                            .getJobVertex(JOB_VERTEX.getID()))
+                                            .getTaskVertices();
+                            return Arrays.stream(taskVertices)
+                                    .map(ExecutionVertex::getCurrentExecutionAttempt)
+                                    .map(Execution::getAttemptId)
+                                    .collect(Collectors.toList());
+                        });
+
+        assertThat(executionAttemptIds).hasSize(PARALLELISM);
+
+        runInMainThread(
+                () -> {
+                    // fail one of the vertices
+                    scheduler.updateTaskExecutionState(
+                            new TaskExecutionState(
+                                    executionAttemptIds.get(0),
+                                    ExecutionState.FAILED,
+                                    new Exception("Test exception for local recovery")));
+                });
+
+        runInMainThread(
+                () -> {
+                    // cancel remaining vertices
+                    for (int idx = 1; idx < executionAttemptIds.size(); idx++) {
+                        scheduler.updateTaskExecutionState(
+                                new TaskExecutionState(
+                                        executionAttemptIds.get(idx), ExecutionState.CANCELED));
+                    }
+                });
+
+        waitForJobStatusRunning(scheduler);
 
         // First allocation during the job start + second allocation after job restart.
         assertThat(capturedAllocations).hasSize(2);
         // Fist allocation won't use state data.
         assertTrue(capturedAllocations.get(0).isEmpty());
+
         // Second allocation should use data from latest checkpoint.
         assertThat(
                         capturedAllocations
@@ -3060,17 +3112,17 @@ public class AdaptiveSchedulerTest {
         final Map<OperatorID, OperatorSubtaskState> operatorStates = new HashMap<>();
         for (final JobVertex jobVertex : jobGraph.getVertices()) {
             final KeyedStateHandle keyedStateHandle =
-                    generateKeyGroupState(jobVertex.getID(), KeyGroupRange.of(0, 0), true);
-            jobVertex
-                    .getOperatorIDs()
-                    .forEach(
-                            operatorID -> {
-                                operatorStates.put(
-                                        operatorID.getGeneratedOperatorID(),
-                                        OperatorSubtaskState.builder()
-                                                .setManagedKeyedState(keyedStateHandle)
-                                                .build());
-                            });
+                    generateKeyGroupState(
+                            jobVertex.getID(),
+                            KeyGroupRange.of(0, jobGraph.getMaximumParallelism() - 1),
+                            false);
+            for (OperatorIDPair operatorId : jobVertex.getOperatorIDs()) {
+                operatorStates.put(
+                        operatorId.getGeneratedOperatorID(),
+                        OperatorSubtaskState.builder()
+                                .setManagedKeyedState(keyedStateHandle)
+                                .build());
+            }
         }
         return operatorStates;
     }

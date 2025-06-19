@@ -42,7 +42,6 @@ import org.apache.flink.runtime.checkpoint.CheckpointIDCounter;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointScheduling;
-import org.apache.flink.runtime.checkpoint.CheckpointStatsCounts;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsListener;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
@@ -1127,17 +1126,26 @@ public class AdaptiveScheduler
     private JobAllocationsInformation getJobAllocationsInformationFromGraphAndState(
             @Nullable final ExecutionGraph previousExecutionGraph) {
 
-        final CompletedCheckpoint latestCompletedCheckpoint =
-                Optional.ofNullable(requestCheckpointStats())
-                        .map(CheckpointStatsSnapshot::getCounts)
-                        .map(CheckpointStatsCounts::getNumberOfCompletedCheckpoints)
-                        // If checkpointing is disabled, completedCheckpointStore calls will
-                        // throw UnsupportedOperationException hence we verify that checkpoint is
-                        // present
-                        // before trying to access it.
-                        .filter(count -> count > 0)
-                        .map(count -> completedCheckpointStore.getLatestCheckpoint())
-                        .orElse(null);
+        CompletedCheckpoint latestCompletedCheckpoint = null;
+        if (jobGraph.isCheckpointingEnabled()) {
+            latestCompletedCheckpoint = completedCheckpointStore.getLatestCheckpoint();
+        }
+
+        // This was apparently broken for some reason ... I also don't quite get what we're trying
+        // to do here.
+        //        final CompletedCheckpoint latestCompletedCheckpoint =
+        //                Optional.ofNullable(requestCheckpointStats())
+        //                        .map(CheckpointStatsSnapshot::getCounts)
+        //                        .map(CheckpointStatsCounts::getNumberOfCompletedCheckpoints)
+        //                        // If checkpointing is disabled, completedCheckpointStore calls
+        // will
+        //                        // throw UnsupportedOperationException hence we verify that
+        // checkpoint is
+        //                        // present
+        //                        // before trying to access it.
+        //                        .filter(count -> count > 0)
+        //                        .map(count -> completedCheckpointStore.getLatestCheckpoint())
+        //                        .orElse(null);
 
         if (previousExecutionGraph == null || latestCompletedCheckpoint == null) {
             return JobAllocationsInformation.empty();
